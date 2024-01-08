@@ -123,3 +123,128 @@ The system is composed of several key services, each running in its own Docker c
                         â”‚  Custom Redis   â”‚â—€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
                         â”‚     Queues      â”‚
                         â”‚                 â”‚
+                        â””â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                 â”‚
+                        â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                        â”‚                 â”‚     â”‚                 â”‚
+                        â”‚  Worker Process â”‚â”€â”€â”€â”€â–¶â”‚ External Serviceâ”‚
+                        â”‚ (Task Execution)â”‚     â”‚ (e.g., LLM API) â”‚
+                        â”‚                 â”‚     â”‚                 â”‚
+                        â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+```
+
+### Tech Stack
+
+- **Backend**: Python, FastAPI
+- **Frontend**: React, TypeScript, Vite, Tailwind CSS
+- **Task Queue**: Custom Redis-based implementation
+- **Infrastructure**: Docker, Docker Compose
+- **Package Management**: `uv` for Python, `pnpm` for Frontend
+
+### Key Components
+
+- **API Service**: A FastAPI application that exposes endpoints for task creation, management, and monitoring.
+- **Worker Service**: A pool of workers responsible for executing the actual tasks. They consume tasks directly from Redis queues.
+- **Frontend Application**: A React-based single-page application for real-time monitoring and management.
+- **Redis**: Acts as the message broker, task metadata store, and metrics database.
+
+### Data Flow & Task Lifecycle
+
+1.  **Task Creation**: A client sends a request to the FastAPI `/api/v1/tasks/summarize/` endpoint.
+2.  **Metadata Storage**: The API creates a task hash in Redis (`task:{uuid}`) and sets its state to `PENDING`.
+3.  **Queueing**: The task ID is pushed to the `tasks:pending:primary` Redis list.
+4.  **Real-time Update**: A message is published to the `queue-updates` channel, which is streamed to the frontend.
+5.  **Consumption**: A worker process, listening with `BLPOP`, pulls a task ID from the `tasks:pending:primary` or `tasks:pending:retry` queue.
+6.  **Execution**: The worker updates the task state to `ACTIVE`, executes the task (e.g., calls an external LLM API), and handles the result.
+7.  **Completion**:
+    - **Success**: State is updated to `COMPLETED`, result is stored.
+    - **Failure**: State is updated to `FAILED`. If retries are available, it's moved to the `tasks:scheduled` queue for a delayed retry. If not, it's moved to the `dlq:tasks` queue.
+8.  **Monitoring**: Throughout the lifecycle, task state changes are broadcast via the pub/sub channel, providing real-time updates to the monitoring dashboard.
+
+## 5. Prerequisites
+
+- Docker and Docker Compose
+- A modern web browser (e.g., Chrome, Firefox)
+- `git` for cloning the repository
+
+## 6. Quick Start
+
+Get the application up and running in just a few commands.
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/seme555/taskflow-api.git
+    cd taskflow-api
+    ```
+2.  **Set up environment variables:**
+    ```bash
+    cp .env.example .env
+    # (Optional) Edit .env with your configuration, e.g., an OpenRouter API key.
+    ```
+3.  **Start all services:**
+    ```bash
+    docker compose up -d --build
+    ```
+4.  **Access the services:**
+    - **Frontend UI**: [http://localhost:3000](http://localhost:3000)
+    - **API Docs (Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+## 7. Usage
+
+- **Create Tasks**: Use the API or utility scripts to create new tasks.
+- **Monitor System**: Open the Frontend UI to see real-time updates on queue depths, task states, and worker status.
+- **Manage Tasks**: Use the API to check task status, retry failed tasks, or delete them.
+
+## 8. API Reference
+
+The API is divided into several logical groups.
+
+### Health Checks
+
+- `GET /health`: Comprehensive system health check.
+- `GET /live`: Kubernetes-style liveness probe.
+- `GET /ready`: Kubernetes-style readiness probe.
+
+### Task Creation (Application-Specific)
+
+- `POST /api/v1/tasks/summarize/`: Create a new text summarization task.
+- `POST /api/v1/tasks/pdfxtract`: Create a new PDF extraction task for extracting articles from newspaper PDF files.
+
+### Generic Task Management
+
+- `GET /api/v1/tasks/`: List tasks by status (e.g., `?status=COMPLETED`).
+- `GET /api/v1/tasks/{task_id}`: Get detailed information for a single task.
+- `POST /api/v1/tasks/{task_id}/retry`: Manually retry a failed or DLQ task.
+- `DELETE /api/v1/tasks/{task_id}`: Permanently delete a task and its data.
+- `POST /api/v1/tasks/requeue-orphaned`: Utility to find and requeue tasks that are in a `PENDING` state but not in any queue.
+
+### Queue Monitoring & Management
+
+- `GET /api/v1/queues/status`: Get a snapshot of all queue depths and task state counts.
+- `GET /api/v1/queues/status/stream`: SSE endpoint for real-time monitoring updates.
+- `GET /api/v1/queues/{queue_name}/tasks`: List the top task IDs in a specific queue (`primary`, `retry`, `scheduled`, `dlq`).
+- `GET /api/v1/queues/dlq`: Get detailed information for tasks in the Dead Letter Queue.
+
+### Worker Management
+
+- `GET /api/v1/workers/`: Get detailed health and circuit breaker status from all workers.
+- `POST /api/v1/workers/reset-circuit-breaker`: Reset the circuit breakers on all workers.
+- `POST /api/v1/workers/open-circuit-breaker`: Manually open all circuit breakers to halt task processing.
+
+### OpenRouter Service Management
+
+- `GET /api/v1/openrouter/status`: Get current OpenRouter service status with intelligent caching
+  - **Query Parameters**:
+    - `force_refresh=true`: Force a fresh API check, bypassing cache
+  - **Response**: Includes service state, balance, usage, cache hit status, and circuit breaker information
+  - **Performance**: ~50ms for cached responses, only makes fresh API calls when data is stale (>1 minute)
+- `GET /api/v1/openrouter/metrics`: Get OpenRouter usage metrics and analytics
+  - **Query Parameters**:
+    - `days=7`: Number of days of metrics to retrieve (default: 7)
+  - **Response**: Daily breakdown of API calls, success/failure rates, and state distribution
+
+## 9. Redis Data Structures
+
+The system relies on a set of well-defined Redis data structures for its operation.
+
+### Task Queues
