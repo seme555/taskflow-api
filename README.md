@@ -373,3 +373,128 @@ The rate limiting system uses a **Redis-based Token Bucket algorithm** to ensure
      }
    }
    ```
+
+2. **Token Bucket Management**: A shared token bucket is maintained in Redis with:
+   - **Capacity**: Maximum number of tokens (e.g., 230)
+   - **Refill Rate**: Tokens added per second (e.g., 23 tokens/second)
+   - **Current Tokens**: Available tokens at any given time
+
+3. **Request Coordination**: Before making an API call, each worker atomically acquires a token from the bucket using a **Redis LUA script**. This ensures that the check for available tokens and the decrement of the token count happen as a single, indivisible operation, preventing race conditions between distributed workers. The worker:
+   - Requests a token from the distributed rate limiter.
+   - Waits if no tokens are available (up to a configurable timeout).
+   - Proceeds with the API call only after acquiring a token.
+
+4. **Automatic Refill**: Tokens are continuously added to the bucket based on the configured refill rate
+
+### Configuration
+
+Rate limiting is configured through Redis keys that are automatically populated by the monitoring utility:
+
+- **`openrouter:rate_limit_config`**: Stores the current rate limit configuration
+- **`openrouter:rate_limit:bucket`**: Maintains the token bucket state
+
+### Usage Examples
+
+#### Automatic Rate Limiting (Recommended)
+
+The rate limiter is automatically integrated into all OpenRouter API calls. No additional code changes are required:
+
+```python
+# This automatically uses the distributed rate limiter
+result = await call_openrouter_api(messages)
+```
+
+#### Manual Rate Limiting
+
+For custom integrations, you can use the rate limiter directly:
+
+```python
+from rate_limiter import wait_for_rate_limit_token
+
+# Wait for a rate limit token (up to 30 seconds)
+if await wait_for_rate_limit_token(tokens=1, timeout=30.0):
+    # Token acquired, safe to make API call
+    result = await make_api_call()
+else:
+    # Timeout occurred, handle appropriately
+    raise Exception("Rate limit token timeout")
+```
+
+#### Monitoring Rate Limit Status
+
+```python
+from rate_limiter import get_rate_limit_status
+
+status = await get_rate_limit_status()
+print(f"Available tokens: {status['current_tokens']}")
+print(f"Utilization: {status['utilization_percent']:.1f}%")
+print(f"Refill rate: {status['refill_rate']} tokens/second")
+```
+
+### Testing the Rate Limiter
+
+A comprehensive test suite is provided to verify rate limiter functionality:
+
+```bash
+# Test the distributed rate limiter
+python3 utils/test_rate_limiter.py
+```
+
+This test suite includes:
+- Basic token acquisition and bucket behavior
+- OpenRouter configuration simulation
+- Token recovery over time
+- Multiple worker simulation
+- Performance and coordination testing
+
+### Rate Limit Data Structures
+
+The system uses the following Redis data structures:
+
+#### Configuration
+- **`openrouter:rate_limit_config`** (Hash): Current rate limit settings
+  - `requests`: Number of requests allowed
+  - `interval`: Time interval (e.g., "10s")
+  - `updated_at`: Last configuration update timestamp
+
+#### Token Bucket State
+- **`openrouter:rate_limit:bucket`** (Hash): Token bucket state
+  - `tokens`: Current available tokens
+  - `capacity`: Maximum bucket capacity
+  - `refill_rate`: Tokens added per second
+  - `last_refill`: Last refill timestamp
+
+### Benefits
+
+1. **Prevents Rate Limit Violations**: Eliminates HTTP 429 errors from external APIs
+2. **Improves System Reliability**: Reduces task failures due to rate limiting
+3. **Optimizes Resource Usage**: Maximizes API utilization without exceeding limits
+4. **Scales Automatically**: Works seamlessly as you add more worker instances
+5. **Self-Configuring**: Automatically adapts to API rate limit changes
+
+### Monitoring and Observability
+
+The rate limiting system provides comprehensive monitoring capabilities:
+
+- **Real-time Status**: Current token availability and utilization
+- **Historical Tracking**: Rate limit usage patterns over time
+- **Integration Metrics**: Success/failure rates and wait times
+- **Configuration Changes**: Automatic updates when API limits change
+
+## 12. Performance Management
+
+The system's performance can be tuned via environment variables in the `.env` file.
+
+- `WORKER_REPLICAS`: Number of worker containers to run.
+- `CELERY_WORKER_CONCURRENCY`: Number of tasks each worker can process concurrently.
+- `WORKER_PREFETCH_MULTIPLIER`: How many tasks a worker fetches at once.
+- `WORKER_MEMORY_LIMIT` / `WORKER_CPU_LIMIT`: Docker resource limits for worker containers.
+- `CELERY_TASK_TIME_LIMIT`: Hard timeout for task execution.
+
+### OpenRouter State Management Optimization
+
+TaskFlow API includes an advanced OpenRouter state management system that dramatically improves API performance:
+
+- **Intelligent Caching**: Status checks are cached for 1 minute, reducing API response time from 5-10 seconds to ~50ms
+- **95% API Call Reduction**: Only makes fresh OpenRouter API calls when cached data is stale (>1 minute old)
+- **Worker Coordination**: Workers automatically report API successes and failures to the centralized state system
