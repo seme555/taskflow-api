@@ -248,3 +248,128 @@ The API is divided into several logical groups.
 The system relies on a set of well-defined Redis data structures for its operation.
 
 ### Task Queues
+
+- **`tasks:pending:primary`** (List): FIFO queue for new tasks.
+- **`tasks:pending:retry`** (List): FIFO queue for tasks ready for immediate retry.
+- **`tasks:scheduled`** (Sorted Set): Tasks scheduled for a delayed retry, scored by their retry timestamp.
+- **`dlq:tasks`** (List): Dead Letter Queue for tasks that have exhausted all retries.
+
+### Task Metadata
+
+- **`task:{uuid}`** (Hash): Stores all information about a single task, including its content, state, retry count, and result. The `state` field can be one of:
+    - `PENDING`: Task is queued, waiting for a worker.
+    - `ACTIVE`: Task is currently being processed by a worker.
+    - `COMPLETED`: Task finished successfully.
+    - `FAILED`: Task failed, may be retried.
+    - `SCHEDULED`: Task is waiting for a delayed retry.
+    - `DLQ`: Task has failed permanently.
+- **`dlq:task:{uuid}`** (Hash): A copy of the task data when it enters the DLQ.
+
+### Monitoring & Metrics
+
+- **`worker:heartbeat:{worker-id}`** (String): A key used by each worker to report its liveness.
+- **`queue-updates`** (Pub/Sub Channel): Used to broadcast real-time updates to the API for the SSE stream.
+
+### Rate Limiting & External API Management
+
+- **`openrouter:rate_limit_config`** (Hash): Configuration for distributed rate limiting
+  - `requests`: Maximum requests allowed per interval
+  - `interval`: Time interval (e.g., "10s")
+  - `updated_at`: Timestamp of last configuration update
+- **`openrouter:rate_limit:bucket`** (Hash): Token bucket state for rate limiting
+  - `tokens`: Current available tokens
+  - `capacity`: Maximum bucket capacity
+  - `refill_rate`: Tokens added per second
+  - `last_refill`: Last token refill timestamp
+- **`openrouter:credits`** (Hash): OpenRouter API credit monitoring
+  - `balance`: Current credit balance
+  - `usage`: Usage statistics
+  - `last_updated`: Last update timestamp
+- **`openrouter:state`** (Hash): Centralized OpenRouter service state management
+  - `state`: Current service state (active, api_key_invalid, credits_exhausted, rate_limited, error)
+  - `message`: Human-readable status message
+  - `balance`: Current account balance
+  - `usage_today`: Today's API usage
+  - `usage_month`: Monthly API usage
+  - `last_check`: Last status check timestamp
+  - `consecutive_failures`: Number of consecutive API failures
+  - `circuit_breaker_open`: Whether circuit breaker is currently open
+  - `error_details`: Detailed error information when applicable
+- **`openrouter:metrics:{date}`** (Hash): Daily OpenRouter usage metrics
+  - `total_calls`: Total API calls made
+  - `successful_calls`: Number of successful calls
+  - `failed_calls`: Number of failed calls
+  - `state_{state_name}`: Count of time spent in each state
+- **`openrouter:worker_errors:{date}`** (List): Daily worker error logs for debugging
+
+### Circuit Breaker & Worker Management
+
+- **`circuit_breaker:{service}`** (Hash): Circuit breaker state for external services
+  - `state`: Current state (CLOSED, OPEN, HALF_OPEN)
+  - `failure_count`: Number of consecutive failures
+  - `last_failure_time`: Timestamp of last failure
+  - `next_attempt_time`: When to attempt next request in OPEN state
+- **`worker:active_tasks:{worker-id}`** (Set): Set of task IDs currently being processed by a worker
+- **`worker:stats:{worker-id}`** (Hash): Worker performance statistics
+  - `tasks_completed`: Total completed tasks
+  - `tasks_failed`: Total failed tasks
+  - `last_seen`: Last heartbeat timestamp
+
+## 10. Development
+
+### Running Locally
+
+```bash
+# Start all services in detached mode
+docker compose up -d
+
+# View logs for all services
+docker compose logs -f
+
+# View logs for a specific service (e.g., worker)
+docker compose logs -f worker
+
+# Rebuild images after code changes
+docker compose up -d --build
+```
+
+### System Reset
+
+To completely wipe all data in Redis (queues, tasks, metrics) during development, use the provided utility script.
+
+**âš ï¸ Warning**: This is a destructive operation and cannot be undone.
+
+```bash
+# Run the reset script via Docker Compose
+docker compose run --rm reset --confirm
+```
+
+This command is safe to run as it's isolated within the `tools` profile in `docker-compose.yml` and requires explicit confirmation.
+
+## 11. Distributed Rate Limiting
+
+TaskFlow API includes a sophisticated distributed rate limiting system that coordinates API usage across all worker instances to respect external service limits (e.g., OpenRouter API rate limits).
+
+### Overview
+
+The rate limiting system uses a **Redis-based Token Bucket algorithm** to ensure that all workers collectively respect the global rate limits imposed by external APIs. This prevents rate limit violations that could cause task failures and service disruptions.
+
+### Key Features
+
+- **Distributed Coordination**: All workers share the same token bucket stored in Redis
+- **Dynamic Configuration**: Rate limits are automatically updated from API responses
+- **Atomic Operations**: Uses Redis Lua scripts to prevent race conditions
+- **Intelligent Waiting**: Workers wait for tokens to become available rather than failing immediately
+- **Real-time Monitoring**: Provides detailed metrics on rate limit utilization
+
+### How It Works
+
+1. **Configuration Discovery**: The OpenRouter credits monitoring utility (`utils/monitor_openrouter_credits.py`) fetches rate limit information from the API:
+   ```json
+   {
+     "rate_limit": {
+       "requests": 230,
+       "interval": "10s"
+     }
+   }
+   ```
