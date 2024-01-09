@@ -498,3 +498,63 @@ TaskFlow API includes an advanced OpenRouter state management system that dramat
 - **Intelligent Caching**: Status checks are cached for 1 minute, reducing API response time from 5-10 seconds to ~50ms
 - **95% API Call Reduction**: Only makes fresh OpenRouter API calls when cached data is stale (>1 minute old)
 - **Worker Coordination**: Workers automatically report API successes and failures to the centralized state system
+- **Circuit Breaker Integration**: Coordinates failure tracking across all workers to prevent cascading failures
+- **Real-time Error Propagation**: Workers immediately report errors like rate limiting, auth failures, or credit exhaustion
+
+**Performance Benefits:**
+- **Response Time**: 5-10 seconds â†’ ~50ms (99% improvement)
+- **API Efficiency**: ~95% reduction in OpenRouter API calls
+- **System Reliability**: Better error handling and coordination between workers
+- **Enhanced Monitoring**: Comprehensive metrics with 30-day retention
+
+**Configuration Options:**
+- `FRESH_THRESHOLD`: How long to consider cached data fresh (default: 60 seconds)
+- `STALE_THRESHOLD`: When to force refresh stale data (default: 300 seconds)
+- `CIRCUIT_BREAKER_THRESHOLD`: Failures before opening circuit breaker (default: 5)
+
+### Rate Limiting Performance Tuning
+
+- **Token Timeout**: Adjust the rate limit token acquisition timeout in `circuit_breaker.py`
+- **Bucket Capacity**: Automatically configured from API, but can be manually overridden
+- **Monitoring Frequency**: Configure how often rate limits are refreshed from the API
+
+Refer to the `.env.example` file for a full list of tunable parameters and example profiles for different environments.
+
+## 13. Collaboration
+
+We welcome contributions from the community! Whether you're fixing a bug, improving documentation, or adding a new feature, your help is greatly appreciated. This project is licensed under the MIT license, which allows for broad collaboration.
+
+### How to Contribute
+
+We use the standard GitHub flow for contributions:
+
+1.  **Fork the repository**: Create your own copy of the project to work on.
+2.  **Create a new branch**: Make a new branch from `main` for your changes.
+    ```bash
+    git checkout -b feature/my-new-feature
+    ```
+3.  **Make your changes**: Implement your fix or feature. We welcome contributions to both the Python backend and the React frontend.
+4.  **Commit your changes**: Write clear, concise commit messages.
+5.  **Push to your branch**:
+    ```bash
+    git push origin feature/my-new-feature
+    ```
+6.  **Open a Pull Request**: Go to the original repository and open a pull request from your forked branch to the `main` branch. Please provide a detailed description of your changes in the pull request.
+
+### Reporting Issues
+
+If you find a bug or have a suggestion, please open an issue on GitHub. Provide as much detail as possible, including steps to reproduce the issue, so we can address it effectively.
+
+Thank you for helping make TaskFlow API better!
+
+## 14. Troubleshooting
+
+- **Tasks are stuck in `PENDING`**:
+    - Check worker logs: `docker compose logs -f worker`.
+    - Ensure workers are running and healthy: `curl http://localhost:8000/api/v1/workers/`.
+    - Check if circuit breakers are open. If so, reset them after fixing the underlying issue.
+- **High memory usage**:
+    - Reduce `CELERY_WORKER_CONCURRENCY`.
+    - Set `WORKER_MAX_TASKS_PER_CHILD` to a reasonable number (e.g., 1000) to periodically restart worker processes.
+- **Dashboard counters seem incorrect**:
+    - Run the counter sync utility: `docker compose run --rm api python utils/fix_counter_sync.py`.
