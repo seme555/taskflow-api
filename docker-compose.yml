@@ -123,3 +123,53 @@ services:
       interval: ${WORKER_HEALTH_CHECK_INTERVAL:-30s}
       timeout: ${WORKER_HEALTH_CHECK_TIMEOUT:-10s}
       retries: ${WORKER_HEALTH_CHECK_RETRIES:-3}
+      start_period: ${WORKER_HEALTH_CHECK_START_PERIOD:-60s}
+    labels:
+      - "com.taskflowapi.service=worker"
+    command: /app/start_worker.sh
+
+  scheduler:
+    <<: *worker-common
+    environment: 
+      <<: *worker-environment
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "pgrep -f 'celery.*beat' > /dev/null"]
+      interval: ${WORKER_HEALTH_CHECK_INTERVAL:-30s}
+      timeout: ${WORKER_HEALTH_CHECK_TIMEOUT:-10s}
+      retries: ${WORKER_HEALTH_CHECK_RETRIES:-3}
+      start_period: ${WORKER_HEALTH_CHECK_START_PERIOD:-60s}
+    command: uv run celery -A tasks beat --loglevel=${LOG_LEVEL:-info}
+    labels:
+      - "com.taskflowapi.service=scheduler"
+
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    labels:
+      - "com.taskflowapi.service=frontend"
+
+  reset:
+    build:
+      context: .
+      dockerfile: ./src/api/Dockerfile
+    environment:
+      - REDIS_URL=${REDIS_URL}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./utils:/app/utils
+    working_dir: /app
+    entrypoint: ["uv", "run", "python", "utils/reset_redis.py"]
+    profiles:
+      - tools
+
+volumes:
+  redis_data:
