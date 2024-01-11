@@ -248,3 +248,128 @@ class OpenRouterStateManager:
 
             finally:
                 # Release lock
+                await self.redis.delete(self.LOCK_KEY)
+
+        except Exception as e:
+            print(f"Error updating OpenRouter state: {e}")
+            return False
+
+    async def report_worker_error(
+        self,
+        error_type: str,
+        error_message: str,
+        status_code: Optional[int] = None,
+        worker_id: Optional[str] = None,
+    ) -> bool:
+        """
+        Report an OpenRouter error from a worker.
+
+        Args:
+            error_type: Type of error (e.g., "api_key_invalid", "credits_exhausted")
+            error_message: Error message
+            status_code: HTTP status code if applicable
+            worker_id: ID of the worker reporting the error
+
+        Returns:
+            True if report successful, False otherwise
+        """
+        try:
+            # Map error types to states
+            error_state_map = {
+                "api_key_invalid": OpenRouterState.API_KEY_INVALID,
+                "credits_exhausted": OpenRouterState.CREDITS_EXHAUSTED,
+                "rate_limited": OpenRouterState.RATE_LIMITED,
+                "service_unavailable": OpenRouterState.SERVICE_UNAVAILABLE,
+                "timeout": OpenRouterState.ERROR,
+                "network_error": OpenRouterState.ERROR,
+            }
+
+            state = error_state_map.get(error_type, OpenRouterState.ERROR)
+
+            # Create error details
+            error_details = {
+                "error_type": error_type,
+                "error_message": error_message,
+                "worker_id": worker_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+            if status_code:
+                error_details["status_code"] = status_code
+
+            # Update state
+            return await self.update_state(
+                state=state,
+                message=f"Worker reported: {error_type}",
+                error_details=json.dumps(error_details),
+                is_api_success=False,
+            )
+
+        except Exception as e:
+            print(f"Error reporting worker error: {e}")
+            return False
+
+    async def is_fresh(self, max_age_seconds: int = None) -> bool:
+        """
+        Check if cached state is fresh enough.
+
+        Args:
+            max_age_seconds: Maximum age in seconds (default: FRESH_THRESHOLD)
+
+        Returns:
+            True if state is fresh, False otherwise
+        """
+        if max_age_seconds is None:
+            max_age_seconds = self.FRESH_THRESHOLD
+
+        try:
+            last_check_str = await self.redis.hget(self.STATE_KEY, "last_check")
+            if not last_check_str:
+                return False
+
+            last_check = datetime.fromisoformat(last_check_str.replace("Z", "+00:00"))
+            age_seconds = (datetime.now(timezone.utc) - last_check).total_seconds()
+
+            return age_seconds <= max_age_seconds
+
+        except Exception:
+            return False
+
+    async def should_skip_api_call(self) -> tuple[bool, Optional[str]]:
+        """
+        Check if API calls should be skipped due to circuit breaker or rate limiting.
+
+        Returns:
+            Tuple of (should_skip, reason)
+        """
+        try:
+            state = await self.get_state(force_refresh=True)
+            if not state:
+                return False, None
+
+            # Check circuit breaker
+            if state.circuit_breaker_open:
+                return True, "Circuit breaker is open"
+
+            # Check rate limiting
+            if (
+                state.state == OpenRouterState.RATE_LIMITED
+                and state.rate_limit_reset
+                and datetime.now(timezone.utc) < state.rate_limit_reset
+            ):
+                return True, "Rate limited"
+
+            return False, None
+
+        except Exception:
+            return False, None
+
+    async def _update_metrics(self, state: OpenRouterState, is_success: bool) -> None:
+        """Update OpenRouter metrics."""
+        try:
+            current_time = datetime.now(timezone.utc)
+
+            # Update daily metrics
+            date_key = current_time.strftime("%Y-%m-%d")
+            metrics_key = f"{self.METRICS_KEY}:{date_key}"
+
