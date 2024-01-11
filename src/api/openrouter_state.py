@@ -123,3 +123,128 @@ class OpenRouterStateManager:
                 message=state_data.get("message", "Unknown state"),
                 balance=float(state_data["balance"])
                 if state_data.get("balance")
+                else None,
+                usage_today=float(state_data["usage_today"])
+                if state_data.get("usage_today")
+                else None,
+                usage_month=float(state_data["usage_month"])
+                if state_data.get("usage_month")
+                else None,
+                last_check=last_check,
+                last_api_call=last_api_call,
+                error_details=state_data.get("error_details"),
+                consecutive_failures=int(state_data.get("consecutive_failures", 0)),
+                last_success=last_success,
+                circuit_breaker_open=state_data.get(
+                    "circuit_breaker_open", "false"
+                ).lower()
+                == "true",
+                rate_limit_reset=rate_limit_reset,
+            )
+
+        except Exception as e:
+            print(f"Error getting OpenRouter state: {e}")
+            return None
+
+    async def update_state(
+        self,
+        state: OpenRouterState,
+        message: str,
+        balance: Optional[float] = None,
+        usage_today: Optional[float] = None,
+        usage_month: Optional[float] = None,
+        error_details: Optional[str] = None,
+        is_api_success: bool = False,
+        rate_limit_reset: Optional[datetime] = None,
+    ) -> bool:
+        """
+        Update OpenRouter state in Redis.
+
+        Args:
+            state: New state
+            message: State message
+            balance: Account balance
+            usage_today: Today's usage
+            usage_month: Monthly usage
+            error_details: Error details if applicable
+            is_api_success: Whether this update represents a successful API call
+            rate_limit_reset: When rate limit resets (if rate limited)
+
+        Returns:
+            True if update successful, False otherwise
+        """
+        try:
+            # Acquire lock to prevent concurrent updates
+            lock_acquired = await self.redis.set(
+                self.LOCK_KEY, "locked", nx=True, ex=self.LOCK_TIMEOUT
+            )
+
+            if not lock_acquired:
+                # Another process is updating, skip this update
+                return False
+
+            try:
+                current_time = datetime.now(timezone.utc)
+
+                # Get current state for failure counting
+                current_state = await self.get_state(force_refresh=True)
+                consecutive_failures = 0
+                last_success = None
+
+                if current_state:
+                    consecutive_failures = current_state.consecutive_failures
+                    last_success = current_state.last_success
+
+                # Update failure count and success timestamp
+                if is_api_success:
+                    consecutive_failures = 0
+                    last_success = current_time
+                elif state in [
+                    OpenRouterState.ERROR,
+                    OpenRouterState.SERVICE_UNAVAILABLE,
+                    OpenRouterState.RATE_LIMITED,
+                ]:
+                    consecutive_failures += 1
+
+                # Determine if circuit breaker should be open
+                circuit_breaker_open = (
+                    consecutive_failures >= 5
+                )  # Open after 5 consecutive failures
+
+                # Prepare state data
+                state_data = {
+                    "state": state.value,
+                    "message": message,
+                    "last_check": current_time.isoformat(),
+                    "last_api_call": current_time.isoformat(),
+                    "consecutive_failures": str(consecutive_failures),
+                    "circuit_breaker_open": str(circuit_breaker_open).lower(),
+                }
+
+                # Add optional fields
+                if balance is not None:
+                    state_data["balance"] = str(balance)
+                if usage_today is not None:
+                    state_data["usage_today"] = str(usage_today)
+                if usage_month is not None:
+                    state_data["usage_month"] = str(usage_month)
+                if error_details:
+                    state_data["error_details"] = error_details
+                if last_success:
+                    state_data["last_success"] = last_success.isoformat()
+                if rate_limit_reset:
+                    state_data["rate_limit_reset"] = rate_limit_reset.isoformat()
+
+                # Update state in Redis with TTL
+                await self.redis.hset(self.STATE_KEY, mapping=state_data)
+                await self.redis.expire(
+                    self.STATE_KEY, self.DEFAULT_TTL * 2
+                )  # 10 minutes TTL
+
+                # Update metrics
+                await self._update_metrics(state, is_api_success)
+
+                return True
+
+            finally:
+                # Release lock
