@@ -373,3 +373,61 @@ class OpenRouterStateManager:
             date_key = current_time.strftime("%Y-%m-%d")
             metrics_key = f"{self.METRICS_KEY}:{date_key}"
 
+            async with self.redis.pipeline() as pipe:
+                # Increment counters
+                await pipe.hincrby(metrics_key, "total_calls", 1)
+
+                if is_success:
+                    await pipe.hincrby(metrics_key, "successful_calls", 1)
+                else:
+                    await pipe.hincrby(metrics_key, "failed_calls", 1)
+
+                # Track state occurrences
+                await pipe.hincrby(metrics_key, f"state_{state.value}", 1)
+
+                # Set expiry for metrics (keep for 30 days)
+                await pipe.expire(metrics_key, 30 * 24 * 3600)
+
+                await pipe.execute()
+
+        except Exception as e:
+            print(f"Error updating metrics: {e}")
+
+    async def get_metrics(self, days: int = 7) -> Dict[str, Any]:
+        """
+        Get OpenRouter metrics for the specified number of days.
+
+        Args:
+            days: Number of days to retrieve metrics for
+
+        Returns:
+            Dictionary containing metrics data
+        """
+        try:
+            metrics = {}
+            current_time = datetime.now(timezone.utc)
+
+            for i in range(days):
+                from datetime import timedelta
+
+                date = current_time - timedelta(days=i)
+                date_key = date.strftime("%Y-%m-%d")
+                metrics_key = f"{self.METRICS_KEY}:{date_key}"
+
+                day_metrics = await self.redis.hgetall(metrics_key)
+                if day_metrics:
+                    # Convert string values to integers
+                    parsed_metrics = {}
+                    for key, value in day_metrics.items():
+                        try:
+                            parsed_metrics[key] = int(value)
+                        except (ValueError, TypeError):
+                            parsed_metrics[key] = value
+
+                    metrics[date_key] = parsed_metrics
+
+            return metrics
+
+        except Exception as e:
+            print(f"Error getting metrics: {e}")
+            return {}
