@@ -123,3 +123,45 @@ app = FastAPI(
     version=settings.api_version,
     docs_url=settings.docs_url,
     redoc_url=settings.redoc_url,
+    lifespan=lifespan,
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Set Celery app in task routers
+tasks.celery_app = celery_app
+summarize.celery_app = celery_app
+
+# Include routers
+app.include_router(summarize.router)  # Application endpoints first
+app.include_router(pdfxtract.router)  # PDF extraction endpoints
+app.include_router(health.router)
+app.include_router(tasks.router)
+app.include_router(queues.router)
+app.include_router(workers.router)
+app.include_router(redis.router)  # Redis monitoring endpoints
+app.include_router(openrouter.router)  # OpenRouter monitoring endpoints
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    """Root endpoint."""
+    return {
+        "message": "TaskFlow API API",
+        "version": settings.api_version,
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=settings.debug)
