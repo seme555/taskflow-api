@@ -123,3 +123,128 @@ class RedisConnectionManager:
         """Get the Redis client instance."""
         if self._redis is None:
             raise RuntimeError(
+                "Redis connection not initialized. Call initialize() first."
+            )
+        return self._redis
+
+    @asynccontextmanager
+    async def get_connection(self, timeout: Optional[float] = None):
+        """
+        Get a Redis connection with automatic cleanup.
+
+        Args:
+            timeout: Optional timeout for operations using this connection
+        """
+        if timeout is None:
+            timeout = OptimizedRedisConfig.STANDARD_TIMEOUT
+
+        try:
+            # Use the main Redis client with timeout override
+            yield self._redis
+
+        except Exception as e:
+            logger.error(f"Redis connection error: {e}")
+            raise
+
+    async def execute_with_retry(self, operation, *args, **kwargs):
+        """
+        Execute a Redis operation with automatic retry logic.
+
+        Args:
+            operation: Redis operation to execute
+            *args, **kwargs: Arguments for the operation
+        """
+        last_exception = None
+
+        for attempt in range(OptimizedRedisConfig.RETRY_ATTEMPTS):
+            try:
+                return await operation(*args, **kwargs)
+            except OptimizedRedisConfig.RETRY_ON_ERROR as e:
+                last_exception = e
+                if attempt < OptimizedRedisConfig.RETRY_ATTEMPTS - 1:
+                    delay = OptimizedRedisConfig.RETRY_BACKOFF.compute(attempt)
+                    logger.warning(
+                        f"Redis operation failed (attempt {attempt + 1}), "
+                        f"retrying in {delay}s: {e}"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        f"Redis operation failed after {OptimizedRedisConfig.RETRY_ATTEMPTS} attempts"
+                    )
+            except Exception as e:
+                # Non-retryable error
+                logger.error(f"Redis operation failed with non-retryable error: {e}")
+                raise
+
+        # If we get here, all retries failed
+        raise last_exception
+
+    async def _health_monitor(self) -> None:
+        """Background task to monitor Redis connection health."""
+        while True:
+            try:
+                await asyncio.sleep(OptimizedRedisConfig.HEALTH_CHECK_INTERVAL)
+
+                # Ping Redis to check health
+                await self._redis.ping()
+
+                # Log pool statistics
+                if hasattr(self._pool, "_available_connections"):
+                    available = len(self._pool._available_connections)
+                    created = self._pool._created_connections
+                    logger.debug(
+                        f"Redis pool health: {available} available, {created} total connections"
+                    )
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Redis health check failed: {e}")
+
+    async def get_pool_stats(self) -> dict:
+        """Get current connection pool statistics."""
+        if not self._pool:
+            return {"status": "not_initialized"}
+
+        stats = {
+            "max_connections": OptimizedRedisConfig.MAX_CONNECTIONS,
+            "created_connections": getattr(self._pool, "_created_connections", 0),
+            "available_connections": len(
+                getattr(self._pool, "_available_connections", [])
+            ),
+            "in_use_connections": None,
+        }
+
+        # Calculate in-use connections
+        if (
+            stats["created_connections"] is not None
+            and stats["available_connections"] is not None
+        ):
+            stats["in_use_connections"] = (
+                stats["created_connections"] - stats["available_connections"]
+            )
+
+        return stats
+
+
+# Specialized Redis clients for different use cases
+class LongRunningRedisClient:
+    """Redis client optimized for long-running operations like BLPOP."""
+
+    def __init__(self, connection_manager: RedisConnectionManager):
+        self.connection_manager = connection_manager
+
+    async def blpop(self, keys, timeout: int = 0):
+        """
+        Blocking list pop with optimized timeout handling.
+
+        Args:
+            keys: List of keys to pop from
+            timeout: Timeout in seconds (0 = block indefinitely)
+        """
+        # Use longer socket timeout for blocking operations
+        socket_timeout = max(
+            timeout + 10 if timeout > 0 else OptimizedRedisConfig.LONG_RUNNING_TIMEOUT,
+            OptimizedRedisConfig.LONG_RUNNING_TIMEOUT,
+        )
