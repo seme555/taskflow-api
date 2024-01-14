@@ -248,3 +248,98 @@ class LongRunningRedisClient:
             timeout + 10 if timeout > 0 else OptimizedRedisConfig.LONG_RUNNING_TIMEOUT,
             OptimizedRedisConfig.LONG_RUNNING_TIMEOUT,
         )
+
+        async with self.connection_manager.get_connection(
+            timeout=socket_timeout
+        ) as redis_client:
+            return await redis_client.blpop(keys, timeout=timeout)
+
+    async def brpop(self, keys, timeout: int = 0):
+        """
+        Blocking right pop with optimized timeout handling.
+
+        Args:
+            keys: List of keys to pop from
+            timeout: Timeout in seconds (0 = block indefinitely)
+        """
+        socket_timeout = max(
+            timeout + 10 if timeout > 0 else OptimizedRedisConfig.LONG_RUNNING_TIMEOUT,
+            OptimizedRedisConfig.LONG_RUNNING_TIMEOUT,
+        )
+
+        async with self.connection_manager.get_connection(
+            timeout=socket_timeout
+        ) as redis_client:
+            return await redis_client.brpop(keys, timeout=timeout)
+
+
+class PipelineRedisClient:
+    """Redis client optimized for pipeline operations."""
+
+    def __init__(self, connection_manager: RedisConnectionManager):
+        self.connection_manager = connection_manager
+
+    @asynccontextmanager
+    async def pipeline(self, transaction: bool = True):
+        """
+        Get a Redis pipeline with optimized timeout settings.
+
+        Args:
+            transaction: Whether to use transaction mode
+        """
+        async with self.connection_manager.get_connection(
+            timeout=OptimizedRedisConfig.PIPELINE_TIMEOUT
+        ) as redis_client:
+            async with redis_client.pipeline(transaction=transaction) as pipe:
+                yield pipe
+
+
+# Global connection manager instance
+_connection_manager: Optional[RedisConnectionManager] = None
+
+
+async def initialize_redis(redis_url: str) -> RedisConnectionManager:
+    """Initialize the global Redis connection manager."""
+    global _connection_manager
+
+    if _connection_manager is not None:
+        await _connection_manager.close()
+
+    _connection_manager = RedisConnectionManager(redis_url)
+    await _connection_manager.initialize()
+
+    return _connection_manager
+
+
+async def get_redis_manager() -> RedisConnectionManager:
+    """Get the global Redis connection manager."""
+    if _connection_manager is None:
+        raise RuntimeError("Redis connection manager not initialized")
+    return _connection_manager
+
+
+async def close_redis() -> None:
+    """Close the global Redis connection manager."""
+    global _connection_manager
+    if _connection_manager is not None:
+        await _connection_manager.close()
+        _connection_manager = None
+
+
+# Convenience functions for different Redis client types
+async def get_standard_redis() -> redis.Redis:
+    """Get a standard Redis client for regular operations."""
+    manager = await get_redis_manager()
+    return manager.redis
+
+
+async def get_long_running_redis() -> LongRunningRedisClient:
+    """Get a Redis client optimized for long-running operations."""
+    manager = await get_redis_manager()
+    return LongRunningRedisClient(manager)
+
+
+async def get_pipeline_redis() -> PipelineRedisClient:
+    """Get a Redis client optimized for pipeline operations."""
+    manager = await get_redis_manager()
+    return PipelineRedisClient(manager)
