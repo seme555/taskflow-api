@@ -248,3 +248,58 @@ async def get_openrouter_status(
 
         # Get updated state for response
         updated_state = await state_manager.get_state(force_refresh=True)
+        if updated_state:
+            return OpenRouterStatus(
+                status=updated_state.state.value,
+                message=updated_state.message,
+                balance=updated_state.balance,
+                usage_today=updated_state.usage_today,
+                usage_month=updated_state.usage_month,
+                last_check=updated_state.last_check.isoformat(),
+                error_details=updated_state.error_details,
+                consecutive_failures=updated_state.consecutive_failures,
+                circuit_breaker_open=updated_state.circuit_breaker_open,
+                cache_hit=False,
+            )
+
+        # Fallback to API result if state update failed
+        return OpenRouterStatus(
+            status=api_result["status"],
+            message=api_result["message"],
+            balance=api_result.get("balance"),
+            usage_today=api_result.get("usage_today"),
+            usage_month=api_result.get("usage_month"),
+            last_check=datetime.now(timezone.utc).isoformat(),
+            error_details=api_result.get("error_details"),
+            cache_hit=False,
+        )
+
+    except Exception as e:
+        return OpenRouterStatus(
+            status="error",
+            message="Status check failed",
+            error_details=str(e),
+            cache_hit=False,
+        )
+
+
+@router.get("/metrics")
+async def get_openrouter_metrics(
+    days: int = 7, redis_service=Depends(get_redis_service)
+):
+    """Get OpenRouter usage metrics for the specified number of days."""
+    if not redis_service or not redis_service.redis:
+        raise HTTPException(status_code=503, detail="Redis service unavailable")
+
+    try:
+        state_manager = OpenRouterStateManager(redis_service.redis)
+        metrics = await state_manager.get_metrics(days=days)
+
+        return {
+            "metrics": metrics,
+            "days": days,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get metrics: {str(e)}")
