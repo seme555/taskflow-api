@@ -123,3 +123,25 @@ async def initialize_simple_redis(redis_url: str) -> SimpleRedisManager:
     _simple_manager = SimpleRedisManager(redis_url)
     await _simple_manager.initialize()
 
+    return _simple_manager
+
+
+async def get_simple_redis_manager() -> SimpleRedisManager:
+    """Get the simple Redis connection manager."""
+    if _simple_manager is None:
+        raise RuntimeError("Simple Redis connection manager not initialized")
+    return _simple_manager
+
+
+async def close_simple_redis() -> None:
+    """Close the simple Redis connection manager."""
+    global _simple_manager
+    if _simple_manager is not None:
+        await _simple_manager.close()
+        _simple_manager = None
+
+
+async def get_simple_redis() -> redis.Redis:
+    """Get a simple Redis client for operations."""
+    manager = await get_simple_redis_manager()
+    return manager.redis
