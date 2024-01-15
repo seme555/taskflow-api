@@ -123,3 +123,128 @@ async def check_openrouter_api_key(api_key: str, base_url: str) -> Dict:
         return {
             "status": "error",
             "message": "API timeout",
+            "error_details": "Request timed out",
+        }
+    except httpx.RequestError as e:
+        return {"status": "error", "message": "Network error", "error_details": str(e)}
+    except json.JSONDecodeError as e:
+        return {
+            "status": "error",
+            "message": "Invalid JSON response",
+            "error_details": str(e),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": "Unexpected error",
+            "error_details": str(e),
+        }
+
+
+@router.get("/status", response_model=OpenRouterStatus)
+async def get_openrouter_status(
+    force_refresh: bool = False, redis_service=Depends(get_redis_service)
+):
+    """
+    Get OpenRouter service status with intelligent caching.
+
+    Args:
+        force_refresh: Force a fresh API check, bypassing cache
+
+    Returns status with appropriate labels for the frontend badge:
+    - "api_key_missing": Red badge
+    - "api_key_invalid": Red badge
+    - "credits_exhausted": Orange badge
+    - "rate_limited": Orange badge
+    - "active": Green badge
+    - "error": Red badge
+    """
+
+    # Check if API key is configured
+    if not settings.openrouter_api_key:
+        return OpenRouterStatus(
+            status="api_key_missing", message="API Key missing", cache_hit=False
+        )
+
+    if not redis_service or not redis_service.redis:
+        return OpenRouterStatus(
+            status="error",
+            message="Redis service unavailable",
+            error_details="Cannot access state management",
+            cache_hit=False,
+        )
+
+    try:
+        # Initialize state manager
+        state_manager = OpenRouterStateManager(redis_service.redis)
+
+        # Try to get cached state first (unless force refresh)
+        cached_state = None
+        if not force_refresh:
+            cached_state = await state_manager.get_state()
+
+        # If we have fresh cached state, use it
+        if cached_state and await state_manager.is_fresh():
+            return OpenRouterStatus(
+                status=cached_state.state.value,
+                message=cached_state.message,
+                balance=cached_state.balance,
+                usage_today=cached_state.usage_today,
+                usage_month=cached_state.usage_month,
+                last_check=cached_state.last_check.isoformat(),
+                error_details=cached_state.error_details,
+                consecutive_failures=cached_state.consecutive_failures,
+                circuit_breaker_open=cached_state.circuit_breaker_open,
+                cache_hit=True,
+            )
+
+        # Check if we should skip API call due to circuit breaker or rate limiting
+        should_skip, skip_reason = await state_manager.should_skip_api_call()
+        if should_skip and cached_state:
+            # Return cached state with updated message
+            return OpenRouterStatus(
+                status=cached_state.state.value,
+                message=f"Skipped API call: {skip_reason}",
+                balance=cached_state.balance,
+                usage_today=cached_state.usage_today,
+                usage_month=cached_state.usage_month,
+                last_check=cached_state.last_check.isoformat(),
+                error_details=cached_state.error_details,
+                consecutive_failures=cached_state.consecutive_failures,
+                circuit_breaker_open=cached_state.circuit_breaker_open,
+                cache_hit=True,
+            )
+
+        # Perform fresh API check
+        api_result = await check_openrouter_api_key(
+            settings.openrouter_api_key, settings.openrouter_base_url
+        )
+
+        # Map API result to state
+        state_map = {
+            "active": OpenRouterState.ACTIVE,
+            "api_key_invalid": OpenRouterState.API_KEY_INVALID,
+            "credits_exhausted": OpenRouterState.CREDITS_EXHAUSTED,
+            "error": OpenRouterState.ERROR,
+        }
+
+        new_state = state_map.get(api_result["status"], OpenRouterState.ERROR)
+        is_success = api_result["status"] == "active"
+
+        # Handle rate limiting detection
+        if "rate limit" in api_result.get("error_details", "").lower():
+            new_state = OpenRouterState.RATE_LIMITED
+
+        # Update state in Redis
+        await state_manager.update_state(
+            state=new_state,
+            message=api_result["message"],
+            balance=api_result.get("balance"),
+            usage_today=api_result.get("usage_today"),
+            usage_month=api_result.get("usage_month"),
+            error_details=api_result.get("error_details"),
+            is_api_success=is_success,
+        )
+
+        # Get updated state for response
+        updated_state = await state_manager.get_state(force_refresh=True)
