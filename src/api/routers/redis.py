@@ -123,3 +123,11 @@ def _get_pool_recommendations(pool_stats: Dict[str, Any]) -> Dict[str, str]:
         recommendations["pool_exhaustion"] = (
             "No available connections in the pool. "
             "This may cause connection timeouts. Consider increasing MAX_CONNECTIONS."
+        )
+
+    if not recommendations:
+        recommendations["status"] = (
+            "Connection pool is operating within normal parameters."
+        )
+
+    return recommendations
