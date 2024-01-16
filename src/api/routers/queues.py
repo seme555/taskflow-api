@@ -248,3 +248,49 @@ async def stream_queue_status():
                         # No message received, just continue without sending heartbeat
                         # Heartbeats will be sent only on timeout
                         continue
+
+                except asyncio.TimeoutError:
+                    # Send heartbeat on timeout (every 30 seconds)
+                    heartbeat_data = {
+                        "type": "heartbeat",
+                        "timestamp": asyncio.get_event_loop().time(),
+                    }
+                    yield f"data: {json.dumps(heartbeat_data)}\n\n"
+
+                except Exception as e:
+                    # Send error and continue
+                    error_data = {
+                        "type": "error",
+                        "message": str(e),
+                        "timestamp": asyncio.get_event_loop().time(),
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
+
+        except Exception as e:
+            # Final error before closing
+            error_data = {
+                "type": "fatal_error",
+                "message": str(e),
+                "timestamp": asyncio.get_event_loop().time(),
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+
+        finally:
+            # Clean up
+            try:
+                await pubsub.unsubscribe("queue-updates")
+                await pubsub.close()
+                await pubsub_redis.close()
+            except Exception:
+                pass  # Ignore cleanup errors
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control",
+        },
+    )
