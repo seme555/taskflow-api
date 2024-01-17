@@ -248,3 +248,18 @@ async def delete_task(
         success = await task_svc.delete_task(task_id)
 
         if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+            )
+
+        return TaskDeleteResponse(
+            task_id=task_id,
+            message=f"Task {task_id} and all associated data have been permanently deleted",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete task: {str(e)}",
+        )
