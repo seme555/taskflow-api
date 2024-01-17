@@ -123,3 +123,128 @@ async def list_task_summaries(
             queue=queue,
             start_date=start_date,
             end_date=end_date,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            page=page,
+            page_size=page_size,
+            task_id=task_id,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list task summaries: {str(e)}",
+        )
+
+
+@router.get("/{task_id}", response_model=TaskDetail)
+async def get_task(
+    task_id: str, task_svc: TaskService = Depends(get_task_service)
+) -> TaskDetail:
+    """
+    Get task status and details by ID.
+
+    - **task_id**: Unique task identifier
+
+    Returns complete task information including state, result, and error history.
+    Works for tasks of any type (summarization, entity detection, etc.).
+    """
+    task = await task_svc.get_task(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+        )
+
+    return task
+
+
+@router.post("/{task_id}/retry", response_model=TaskResponse)
+async def retry_task(
+    task_id: str,
+    retry_request: Optional[TaskRetryRequest] = None,
+    task_svc: TaskService = Depends(get_task_service),
+) -> TaskResponse:
+    """
+    Manually retry a failed task.
+
+    - **task_id**: Unique task identifier
+    - **reset_retry_count**: Whether to reset the retry count (optional)
+
+    Only failed or DLQ tasks can be retried.
+    Works for tasks of any type (summarization, entity detection, etc.).
+    """
+    # Get current task to check state
+    task = await task_svc.get_task(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+        )
+
+    if task.state not in [TaskState.FAILED, TaskState.DLQ]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Task in state '{task.state}' cannot be retried",
+        )
+
+    reset_retry_count = retry_request.reset_retry_count if retry_request else False
+    success = await task_svc.retry_task(task_id, reset_retry_count)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to retry task"
+        )
+
+    # Note: No need to trigger Celery task anymore
+    # Workers consume directly from Redis queues
+
+    return TaskResponse(task_id=task_id, state=TaskState.PENDING)
+
+
+@router.post("/requeue-orphaned", response_model=dict)
+async def requeue_orphaned_tasks(
+    task_svc: TaskService = Depends(get_task_service),
+) -> dict:
+    """
+    Find and re-queue orphaned tasks.
+
+    Orphaned tasks are tasks that have PENDING state in Redis but are not
+    present in any work queue. This can happen if there's a failure between
+    storing task metadata and adding the task to a queue.
+
+    Works for tasks of any type (summarization, entity detection, etc.).
+
+    Returns:
+    - **found**: Number of orphaned tasks found
+    - **requeued**: Number of tasks successfully re-queued
+    - **errors**: List of any errors encountered
+    """
+    try:
+        result = await task_svc.requeue_orphaned_tasks()
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to requeue orphaned tasks: {str(e)}",
+        )
+
+
+@router.delete("/{task_id}", response_model=TaskDeleteResponse)
+async def delete_task(
+    task_id: str, task_svc: TaskService = Depends(get_task_service)
+) -> TaskDeleteResponse:
+    """
+    Delete a task and all its associated data.
+
+    - **task_id**: Unique task identifier
+
+    This will permanently remove the task from all queues and delete all associated data.
+    This action cannot be undone.
+    Works for tasks of any type (summarization, entity detection, etc.).
+    """
+    try:
+        # Try to delete the task directly - the delete_task method handles existence checks
+        success = await task_svc.delete_task(task_id)
+
+        if not success:
