@@ -123,3 +123,99 @@ class HealthStatus(BaseModel):
     """Schema for health check response."""
 
     status: str = Field(..., description="Overall health status")
+    components: Dict[str, Any] = Field(..., description="Component health status")
+    note: Optional[str] = Field(None, description="Additional health information")
+    timestamp: datetime = Field(..., description="Health check timestamp")
+
+
+class ErrorResponse(BaseModel):
+    """Schema for error responses."""
+
+    detail: str = Field(..., description="Error message")
+    error_code: Optional[str] = Field(None, description="Error code")
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TaskRetryRequest(BaseModel):
+    """Schema for manual task retry request."""
+
+    reset_retry_count: bool = Field(
+        default=False, description="Whether to reset the retry count"
+    )
+
+
+class TaskDeleteResponse(BaseModel):
+    """Schema for task deletion response."""
+
+    task_id: str = Field(..., description="Deleted task identifier")
+    message: str = Field(..., description="Deletion confirmation message")
+
+
+class TaskListResponse(BaseModel):
+    """Schema for task list response."""
+
+    tasks: List[TaskDetail] = Field(
+        ..., description="List of tasks matching the criteria"
+    )
+    page: int = Field(..., description="Current page number")
+    page_size: int = Field(..., description="Number of items per page")
+    total_items: int = Field(..., description="Total number of items")
+    total_pages: int = Field(..., description="Total number of pages")
+    status: Optional[TaskState] = Field(None, description="Filter status used")
+
+
+class TaskSummaryListResponse(BaseModel):
+    """Schema for task list response with summary information only."""
+
+    tasks: List[TaskSummary] = Field(
+        ..., description="List of task summaries matching the criteria"
+    )
+    page: int = Field(..., description="Current page number")
+    page_size: int = Field(..., description="Number of items per page")
+    total_items: int = Field(..., description="Total number of items")
+    total_pages: int = Field(..., description="Total number of pages")
+    status: Optional[TaskState] = Field(None, description="Filter status used")
+
+
+# PDF Extraction Schemas
+
+
+class Article(BaseModel):
+    """Schema for a newspaper article."""
+
+    title: str = Field("", description="Article title")
+    subtitle: str = Field("", description="Article subtitle")
+    author: str = Field("", description="Article author")
+    body: str = Field(..., description="Article body text")
+    topics: List[str] = Field(default_factory=list, description="Article topics/tags")
+    summary: str = Field("", description="Article summary")
+
+
+class Page(BaseModel):
+    """Schema for a newspaper page."""
+
+    page_number: int = Field(..., description="Page number")
+    status: str = Field(
+        "processed", description="Processing status: 'processed' or 'skipped'"
+    )
+    reason: str = Field("", description="Reason for skipping if status is 'skipped'")
+    articles: List[Article] = Field(
+        default_factory=list, description="Articles on this page"
+    )
+
+
+class NewspaperEdition(BaseModel):
+    """Schema for a complete newspaper edition."""
+
+    filename: str = Field(..., description="Original PDF filename")
+    issue_date: str = Field(..., description="Issue date in ISO 8601 format")
+    pages: List[Page] = Field(default_factory=list, description="Pages in the edition")
+
+
+class PdfTaskCreate(BaseModel):
+    """Schema for creating a PDF extraction task."""
+
+    filename: str = Field(..., description="PDF filename")
+    issue_date: Optional[str] = Field(
+        None, description="Issue date in ISO 8601 format (optional)"
+    )
