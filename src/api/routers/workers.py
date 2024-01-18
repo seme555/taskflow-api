@@ -123,3 +123,128 @@ async def get_worker_status(request: Request) -> dict:
                             }
                         )
                     else:
+                        worker_details.append(
+                            {
+                                "worker_id": worker_id,
+                                "status": "no_heartbeat",
+                                "last_heartbeat": None,
+                                "heartbeat_age_seconds": None,
+                                "circuit_breaker": {"state": "unknown"},
+                            }
+                        )
+                except (ValueError, TypeError) as e:
+                    worker_details.append(
+                        {
+                            "worker_id": worker_id,
+                            "status": "error",
+                            "error": str(e),
+                            "circuit_breaker": {"state": "unknown"},
+                        }
+                    )
+
+        # Calculate summary statistics
+        total_workers = len(worker_details)
+        healthy_workers = sum(1 for w in worker_details if w.get("status") == "healthy")
+        stale_workers = sum(1 for w in worker_details if w.get("status") == "stale")
+
+        # Aggregate circuit breaker states
+        circuit_breaker_states = {}
+        for worker in worker_details:
+            cb_state = worker.get("circuit_breaker", {}).get("state", "unknown")
+            circuit_breaker_states[cb_state] = (
+                circuit_breaker_states.get(cb_state, 0) + 1
+            )
+
+        return {
+            "overall_status": "healthy"
+            if healthy_workers == total_workers and total_workers > 0
+            else "degraded",
+            "total_workers": total_workers,
+            "healthy_workers": healthy_workers,
+            "stale_workers": stale_workers,
+            "circuit_breaker_states": circuit_breaker_states,
+            "worker_details": worker_details,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "total_workers": 0,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
+@router.post("/reset-circuit-breaker")
+async def reset_all_circuit_breakers() -> dict:
+    """
+    Reset circuit breakers on all workers.
+
+    Useful for manual recovery after resolving external service issues.
+    """
+    try:
+        from main import celery_app
+
+        # Use broadcast to send reset task to all workers
+        job_results = celery_app.control.broadcast(
+            "reset_worker_circuit_breaker", reply=True, timeout=5.0
+        )
+
+        results = []
+        if job_results:
+            for result in job_results:
+                if result and isinstance(result, dict):
+                    # Extract worker data from nested structure
+                    for worker_name, worker_data in result.items():
+                        if isinstance(worker_data, dict):
+                            worker_data["worker_name"] = worker_name
+                            results.append(worker_data)
+
+        # If broadcast didn't work, fall back to regular task
+        if not results:
+            job = celery_app.send_task("reset_worker_circuit_breaker")
+            try:
+                result = job.get(timeout=5.0)
+                if result:
+                    results = [result]
+            except Exception:
+                results = []
+
+        successful_resets = sum(1 for r in results if r.get("status") == "success")
+
+        return {
+            "message": f"Reset attempted on {len(results)} workers",
+            "successful_resets": successful_resets,
+            "results": results,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {"error": str(e), "timestamp": datetime.utcnow().isoformat()}
+
+
+@router.post("/open-circuit-breaker")
+async def open_all_circuit_breakers() -> dict:
+    """
+    Open circuit breakers on all workers to stop queue processing.
+
+    This will cause all workers to stop processing tasks until the circuit breakers are reset.
+    Tasks will be scheduled for retry rather than processed.
+    """
+    try:
+        from main import celery_app
+
+        # Use broadcast to send open circuit breaker command to all workers
+        job_results = celery_app.control.broadcast(
+            "open_worker_circuit_breaker", reply=True, timeout=5.0
+        )
+
+        results = []
+        if job_results:
+            for result in job_results:
+                if result and isinstance(result, dict):
+                    # Extract worker data from nested structure
+                    for worker_name, worker_data in result.items():
+                        if isinstance(worker_data, dict):
+                            worker_data["worker_name"] = worker_name
+                            results.append(worker_data)
