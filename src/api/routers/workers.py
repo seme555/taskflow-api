@@ -248,3 +248,25 @@ async def open_all_circuit_breakers() -> dict:
                         if isinstance(worker_data, dict):
                             worker_data["worker_name"] = worker_name
                             results.append(worker_data)
+
+        # If broadcast didn't work, fall back to regular task
+        if not results:
+            job = celery_app.send_task("open_worker_circuit_breaker")
+            try:
+                result = job.get(timeout=5.0)
+                if result:
+                    results = [result]
+            except Exception:
+                results = []
+
+        successful_opens = sum(1 for r in results if r.get("status") == "success")
+
+        return {
+            "message": f"Open circuit breaker attempted on {len(results)} workers",
+            "successful_opens": successful_opens,
+            "results": results,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {"error": str(e), "timestamp": datetime.utcnow().isoformat()}
