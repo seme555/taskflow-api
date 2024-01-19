@@ -248,3 +248,128 @@ class TaskService:
         if reset_retry_count:
             updates["retry_count"] = "0"
 
+        await self.redis.hset(f"task:{task_id}", mapping=updates)
+
+        # Queue in retry queue
+        await self.redis.lpush(QUEUE_KEY_MAP[QueueName.RETRY], task_id)
+
+        return True
+
+    async def requeue_orphaned_tasks(self) -> Dict[str, Any]:
+        """Find and re-queue orphaned tasks."""
+        found_count = 0
+        requeued_count = 0
+        errors = []
+
+        try:
+            # Get all task IDs from all queues to check what's already queued
+            queued_task_ids = set()
+
+            # Check primary queue
+            primary_tasks = await self.redis.lrange(
+                QUEUE_KEY_MAP[QueueName.PRIMARY], 0, -1
+            )
+            queued_task_ids.update(primary_tasks)
+
+            # Check retry queue
+            retry_tasks = await self.redis.lrange(QUEUE_KEY_MAP[QueueName.RETRY], 0, -1)
+            queued_task_ids.update(retry_tasks)
+
+            # Check scheduled queue (sorted set)
+            scheduled_tasks = await self.redis.zrange(
+                QUEUE_KEY_MAP[QueueName.SCHEDULED], 0, -1
+            )
+            queued_task_ids.update(scheduled_tasks)
+
+            # Check DLQ
+            dlq_tasks = await self.redis.lrange(QUEUE_KEY_MAP[QueueName.DLQ], 0, -1)
+            queued_task_ids.update(dlq_tasks)
+
+            # Scan all task keys to find orphaned ones
+            async for key in self.redis.scan_iter("task:*"):
+                task_id = key.split(":", 1)[1]  # Extract task_id from "task:uuid"
+
+                # Get task state
+                task_state = await self.redis.hget(key, "state")
+
+                if (
+                    task_state == TaskState.PENDING.value
+                    and task_id not in queued_task_ids
+                ):
+                    found_count += 1
+
+                    try:
+                        # Re-queue the orphaned task in primary queue
+                        await self.redis.lpush(
+                            QUEUE_KEY_MAP[QueueName.PRIMARY], task_id
+                        )
+
+                        # Update the task's updated_at timestamp
+                        await self.redis.hset(
+                            key, "updated_at", datetime.utcnow().isoformat()
+                        )
+
+                        requeued_count += 1
+
+                    except Exception as e:
+                        error_msg = f"Failed to requeue task {task_id}: {str(e)}"
+                        errors.append(error_msg)
+
+            return {
+                "found": found_count,
+                "requeued": requeued_count,
+                "errors": errors,
+                "message": f"Found {found_count} orphaned tasks, successfully requeued {requeued_count}",
+            }
+
+        except Exception as e:
+            errors.append(f"Error during orphaned task scan: {str(e)}")
+            return {
+                "found": found_count,
+                "requeued": requeued_count,
+                "errors": errors,
+                "message": f"Partial completion due to error: {str(e)}",
+            }
+
+    async def delete_task(self, task_id: str) -> bool:
+        """Delete a task and all its associated data from the system."""
+        try:
+            # First, get the task's current state to update counters
+            task_data = await self.redis.hgetall(f"task:{task_id}")
+            if not task_data:
+                return False  # Task doesn't exist
+
+            # Use Redis transaction to ensure atomicity
+            async with self.redis.pipeline(transaction=True) as pipe:
+                # Delete the main task hash
+                await pipe.delete(f"task:{task_id}")
+
+                # Delete any corresponding dead-letter queue hash
+                await pipe.delete(f"dlq:task:{task_id}")
+
+                # Remove the task_id from all potential list-based queues
+                await pipe.lrem(QUEUE_KEY_MAP[QueueName.PRIMARY], 0, task_id)
+                await pipe.lrem(QUEUE_KEY_MAP[QueueName.RETRY], 0, task_id)
+                await pipe.lrem(QUEUE_KEY_MAP[QueueName.DLQ], 0, task_id)
+
+                # Remove the task_id from the scheduled sorted set
+                await pipe.zrem(QUEUE_KEY_MAP[QueueName.SCHEDULED], task_id)
+
+                await pipe.execute()
+
+            return True
+        except Exception:
+            # If there's an error getting task data but we know the task exists,
+            # try to delete it anyway without updating counters
+            try:
+                # Check if task exists in Redis at all
+                exists = await self.redis.exists(f"task:{task_id}")
+                if not exists:
+                    return False
+
+                # Force delete without counter updates for corrupted tasks
+                async with self.redis.pipeline(transaction=True) as pipe:
+                    await pipe.delete(f"task:{task_id}")
+                    await pipe.delete(f"dlq:task:{task_id}")
+                    await pipe.lrem(QUEUE_KEY_MAP[QueueName.PRIMARY], 0, task_id)
+                    await pipe.lrem(QUEUE_KEY_MAP[QueueName.RETRY], 0, task_id)
