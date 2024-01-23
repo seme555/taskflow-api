@@ -748,3 +748,128 @@ class TaskService:
                     has_result=bool(exact_task.result),
                     error_history=exact_task.error_history,
                     state_history=exact_task.state_history,
+                )
+                return TaskSummaryListResponse(
+                    tasks=[task_summary],
+                    page=1,
+                    page_size=1,
+                    total_items=1,
+                    total_pages=1,
+                    status=exact_task.state,
+                )
+
+            # If no exact match, do substring search
+            all_tasks = []
+            async for key in self.redis.scan_iter("task:*"):
+                task_data = await self.redis.hgetall(key)
+                if (
+                    task_data
+                    and task_id.lower() in task_data.get("task_id", "").lower()
+                ):
+                    all_tasks.append(task_data)
+
+            if not all_tasks:
+                return TaskSummaryListResponse(
+                    tasks=[], page=1, page_size=page_size, total_items=0, total_pages=0, status=status
+                )
+
+            # Apply other filters to substring matches
+            filtered_tasks = []
+            for task_data in all_tasks:
+                if status and task_data.get("state") != status.value:
+                    continue
+
+                # Safely parse created_at field
+                try:
+                    created_at_str = task_data.get("created_at")
+                    if created_at_str:
+                        created_at = datetime.fromisoformat(created_at_str)
+                        if start_date and created_at < start_date:
+                            continue
+                        if end_date and created_at > end_date:
+                            continue
+                except (ValueError, TypeError):
+                    # Skip tasks with invalid created_at format
+                    continue
+
+                filtered_tasks.append(task_data)
+
+            # Sort and paginate the substring matches
+            reverse = sort_order.lower() == "desc"
+
+            def sort_key_func_substring(task_data: Dict[str, Any]) -> Any:
+                val = task_data.get(sort_by)
+                if val is None:
+                    if sort_by in ["created_at", "updated_at", "completed_at"]:
+                        return datetime.min if not reverse else datetime.max
+                    elif sort_by in ["retry_count", "max_retries"]:
+                        return 0
+                    else:
+                        return ""
+
+                if isinstance(val, str) and val.isdigit():
+                    return int(val)
+                if isinstance(val, str):
+                    try:
+                        return datetime.fromisoformat(val)
+                    except ValueError:
+                        return val
+                return val
+
+            try:
+                filtered_tasks.sort(key=sort_key_func_substring, reverse=reverse)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Invalid sort key '{sort_by}': {e}")
+
+            # Pagination for substring matches
+            total_items = len(filtered_tasks)
+            total_pages = math.ceil(total_items / page_size)
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            paginated_data = filtered_tasks[start_index:end_index]
+
+            def parse_iso_date(date_str: Optional[str]) -> Optional[datetime]:
+                if not date_str:
+                    return None
+                try:
+                    return datetime.fromisoformat(date_str)
+                except (ValueError, TypeError):
+                    return None
+
+            def parse_json_field_summary(field_data: Optional[str]) -> List[Any]:
+                if not field_data:
+                    return []
+                try:
+                    parsed = json.loads(field_data)
+                    return list(parsed) if isinstance(parsed, list) else []
+                except (json.JSONDecodeError, TypeError):
+                    return []
+
+            tasks = []
+            for task_data in paginated_data:
+                # Defensively parse all fields to avoid skipping tasks
+                task_id_val = task_data.get("task_id", "unknown_id")
+
+                try:
+                    state = TaskState(task_data.get("state", TaskState.FAILED.value))
+                except ValueError:
+                    state = TaskState.FAILED
+
+                try:
+                    retry_count_val = task_data.get("retry_count", "0")
+                    retry_count = int(retry_count_val) if isinstance(retry_count_val, (str, int)) else 0
+                except (ValueError, TypeError):
+                    retry_count = 0
+
+                try:
+                    max_retries = int(
+                        task_data.get("max_retries", settings.max_retries)
+                    )
+                except (ValueError, TypeError):
+                    max_retries = settings.max_retries
+
+                created_at = parse_iso_date(task_data.get("created_at")) or datetime.min
+                updated_at = parse_iso_date(task_data.get("updated_at")) or datetime.min
+                completed_at = parse_iso_date(task_data.get("completed_at"))
+                retry_after = parse_iso_date(task_data.get("retry_after"))
+
