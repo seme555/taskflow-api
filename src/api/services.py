@@ -623,3 +623,128 @@ class TaskService:
             filtered_tasks.sort(key=sort_key_func_main_list, reverse=reverse)
         except (TypeError, ValueError) as e:
             raise ValueError(f"Invalid sort key '{sort_by}': {e}")
+
+        # Pagination
+        total_items = len(filtered_tasks)
+        total_pages = math.ceil(total_items / page_size)
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
+        paginated_data = filtered_tasks[start_index:end_index]
+
+        def parse_iso_date(date_str: Optional[str]) -> Optional[datetime]:
+            if not date_str:
+                return None
+            try:
+                return datetime.fromisoformat(date_str)
+            except (ValueError, TypeError):
+                return None
+
+        def parse_json_field_main(field_data: Optional[str]) -> List[Any]:
+            if not field_data:
+                return []
+            try:
+                parsed = json.loads(field_data)
+                return list(parsed) if isinstance(parsed, list) else []
+            except (json.JSONDecodeError, TypeError):
+                return []
+
+        tasks = []
+        for task_data in paginated_data:
+            # Defensively parse all fields to avoid skipping tasks
+            task_id_val = task_data.get("task_id", "unknown_id")
+
+            try:
+                state = TaskState(task_data.get("state", TaskState.FAILED.value))
+            except ValueError:
+                state = TaskState.FAILED
+
+            try:
+                retry_count_val = task_data.get("retry_count", "0")
+                retry_count = int(retry_count_val) if isinstance(retry_count_val, (str, int)) else 0
+            except (ValueError, TypeError):
+                retry_count = 0
+
+            try:
+                max_retries = int(task_data.get("max_retries", settings.max_retries))
+            except (ValueError, TypeError):
+                max_retries = settings.max_retries
+
+            created_at = parse_iso_date(task_data.get("created_at")) or datetime.min
+            updated_at = parse_iso_date(task_data.get("updated_at")) or datetime.min
+            completed_at = parse_iso_date(task_data.get("completed_at"))
+            retry_after = parse_iso_date(task_data.get("retry_after"))
+
+            error_history = parse_json_field_main(task_data.get("error_history"))
+            state_history = parse_json_field_main(task_data.get("state_history"))
+
+            task_type_str = task_data.get("task_type", TaskType.SUMMARIZE.value)
+            try:
+                task_type = TaskType(task_type_str)
+            except ValueError:
+                task_type = TaskType.SUMMARIZE
+
+            tasks.append(
+                TaskDetail(
+                    task_id=task_id_val,
+                    state=state,
+                    content=task_data.get("content", ""),
+                    retry_count=retry_count,
+                    max_retries=max_retries,
+                    last_error=task_data.get("last_error"),
+                    error_type=task_data.get("error_type"),
+                    retry_after=retry_after,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    completed_at=completed_at,
+                    result=task_data.get("result"),
+                    task_type=task_type,
+                    error_history=error_history,
+                    state_history=state_history,
+                )
+            )
+
+        return TaskListResponse(
+            tasks=tasks,
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+            status=status,
+        )
+
+    async def list_task_summaries(
+        self,
+        status: Optional[TaskState] = None,
+        task_type: Optional[TaskType] = None,
+        queue: Optional[QueueName] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+        page: int = 1,
+        page_size: int = 20,
+        task_id: Optional[str] = None,
+    ) -> TaskSummaryListResponse:
+        """List task summaries (without content) with filtering, sorting, and pagination."""
+        # If task_id is provided, do substring search instead of exact match
+        if task_id:
+            # First try exact match for backward compatibility
+            exact_task = await self.get_task(task_id)
+            if exact_task:
+                # Convert TaskDetail to TaskSummary
+                task_summary = TaskSummary(
+                    task_id=exact_task.task_id,
+                    state=exact_task.state,
+                    retry_count=exact_task.retry_count,
+                    max_retries=exact_task.max_retries,
+                    last_error=exact_task.last_error,
+                    error_type=exact_task.error_type,
+                    retry_after=exact_task.retry_after,
+                    created_at=exact_task.created_at,
+                    updated_at=exact_task.updated_at,
+                    completed_at=exact_task.completed_at,
+                    task_type=exact_task.task_type,
+                    content_length=len(exact_task.content) if exact_task.content else 0,
+                    has_result=bool(exact_task.result),
+                    error_history=exact_task.error_history,
+                    state_history=exact_task.state_history,
