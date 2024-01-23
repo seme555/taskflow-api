@@ -873,3 +873,128 @@ class TaskService:
                 completed_at = parse_iso_date(task_data.get("completed_at"))
                 retry_after = parse_iso_date(task_data.get("retry_after"))
 
+                error_history = parse_json_field_summary(task_data.get("error_history"))
+                state_history = parse_json_field_summary(task_data.get("state_history"))
+
+                task_type_str = task_data.get("task_type", TaskType.SUMMARIZE.value)
+                try:
+                    task_type = TaskType(task_type_str)
+                except ValueError:
+                    task_type = TaskType.SUMMARIZE
+
+                content = task_data.get("content", "")
+                result = task_data.get("result", "")
+
+                tasks.append(
+                    TaskSummary(
+                        task_id=task_id_val,
+                        state=state,
+                        retry_count=retry_count,
+                        max_retries=max_retries,
+                        last_error=task_data.get("last_error"),
+                        error_type=task_data.get("error_type"),
+                        retry_after=retry_after,
+                        created_at=created_at,
+                        updated_at=updated_at,
+                        completed_at=completed_at,
+                        task_type=task_type,
+                        content_length=len(content),
+                        has_result=bool(result),
+                        error_history=error_history,
+                        state_history=state_history,
+                    )
+                )
+
+            return TaskSummaryListResponse(
+                tasks=tasks,
+                page=page,
+                page_size=page_size,
+                total_items=total_items,
+                total_pages=total_pages,
+                status=status,
+            )
+
+        # If no task_id provided, do normal listing
+        all_tasks = []
+        async for key in self.redis.scan_iter("task:*"):
+            task_data = await self.redis.hgetall(key)
+            if task_data:
+                all_tasks.append(task_data)
+
+        # If no tasks found, return empty result
+        if not all_tasks:
+            return TaskSummaryListResponse(
+                tasks=[], page=page, page_size=page_size, total_items=0, total_pages=0, status=status
+            )
+
+        # Filtering
+        filtered_tasks = []
+        for task_data in all_tasks:
+            if status and task_data.get("state") != status.value:
+                continue
+
+            # Filter by task type
+            if task_type:
+                task_type_str = task_data.get("task_type", TaskType.SUMMARIZE.value)
+                if task_type_str != task_type.value:
+                    continue
+
+            # Safely parse created_at field
+            try:
+                created_at_str = task_data.get("created_at")
+                if created_at_str:
+                    created_at = datetime.fromisoformat(created_at_str)
+                    if start_date and created_at < start_date:
+                        continue
+                    if end_date and created_at > end_date:
+                        continue
+            except (ValueError, TypeError):
+                # Skip tasks with invalid created_at format
+                continue
+
+            # This is a simplified queue filter. A more robust implementation
+            # would require storing the queue in the task hash.
+            if queue:
+                # This is a placeholder for more complex queue filtering logic
+                pass
+
+            filtered_tasks.append(task_data)
+
+        # If no tasks after filtering, return empty result
+        if not filtered_tasks:
+            return TaskSummaryListResponse(
+                tasks=[], page=page, page_size=page_size, total_items=0, total_pages=0, status=status
+            )
+
+        # Sorting
+        reverse = sort_order.lower() == "desc"
+
+        def sort_key_func_summary_substring(task_data: Dict[str, Any]) -> Any:
+            val = task_data.get(sort_by)
+            if val is None:
+                # If the field doesn't exist, return a default value for sorting
+                if sort_by in ["created_at", "updated_at", "completed_at"]:
+                    return datetime.min if not reverse else datetime.max
+                elif sort_by in ["retry_count", "max_retries"]:
+                    return 0
+                else:
+                    return ""
+
+            if isinstance(val, str) and val.isdigit():
+                return int(val)
+            if isinstance(val, str):
+                try:
+                    return datetime.fromisoformat(val)
+                except ValueError:
+                    return val
+            return val
+
+        try:
+            filtered_tasks.sort(key=sort_key_func_summary_substring, reverse=reverse)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Invalid sort key '{sort_by}': {e}")
+
+        # Pagination
+        total_items = len(filtered_tasks)
+        total_pages = math.ceil(total_items / page_size)
+        start_index = (page - 1) * page_size
