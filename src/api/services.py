@@ -1123,3 +1123,128 @@ class QueueService:
         async for key in self.redis.scan_iter("task:*"):
             try:
                 state = await self.redis.hget(key, "state")
+                if state and state in states:
+                    states[state] += 1
+            except Exception:
+                # Skip corrupted tasks
+                continue
+
+        # Calculate adaptive retry ratio
+        retry_ratio = self._calculate_adaptive_retry_ratio(retry_depth)
+
+        return QueueStatus(queues=queues, states=states, retry_ratio=retry_ratio)
+
+    async def get_dlq_tasks(self, limit: int = 100) -> List[TaskDetail]:
+        """Get tasks from dead letter queue."""
+        task_ids = await self.redis.lrange(QUEUE_KEY_MAP[QueueName.DLQ], 0, limit - 1)
+        tasks = []
+
+        for task_id in task_ids:
+            # Try to get from DLQ-specific storage first
+            task_data = await self.redis.hgetall(f"dlq:task:{task_id}")
+            if not task_data:
+                # Fallback to regular task storage
+                task_data = await self.redis.hgetall(f"task:{task_id}")
+
+            if task_data:
+                # Parse the task data similar to get_task method
+                error_history = json.loads(task_data.get("error_history", "[]"))
+                created_at = datetime.fromisoformat(task_data["created_at"])
+                updated_at = datetime.fromisoformat(task_data["updated_at"])
+                completed_at = (
+                    datetime.fromisoformat(task_data["completed_at"])
+                    if task_data.get("completed_at")
+                    else None
+                )
+                retry_after = (
+                    datetime.fromisoformat(task_data["retry_after"])
+                    if task_data.get("retry_after")
+                    else None
+                )
+
+                # Get task type, defaulting to SUMMARIZE for backward compatibility
+                task_type_str = task_data.get("task_type", TaskType.SUMMARIZE.value)
+                try:
+                    task_type = TaskType(task_type_str)
+                except ValueError:
+                    task_type = TaskType.SUMMARIZE
+
+                # Parse state history
+                state_history = json.loads(task_data.get("state_history", "[]"))
+
+                task_detail = TaskDetail(
+                    task_id=task_data["task_id"],
+                    state=TaskState(task_data["state"]),
+                    content=task_data["content"],
+                    retry_count=int(task_data["retry_count"]),
+                    max_retries=int(task_data["max_retries"]),
+                    last_error=task_data.get("last_error") or None,
+                    error_type=task_data.get("error_type") or None,
+                    retry_after=retry_after,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    completed_at=completed_at,
+                    result=task_data.get("result") or None,
+                    task_type=task_type,
+                    error_history=error_history,
+                    state_history=state_history,
+                )
+                tasks.append(task_detail)
+
+        return tasks
+
+    async def list_tasks_in_queue(self, queue_name: str, limit: int = 10) -> List[str]:
+        """Get a list of task IDs from a specific queue."""
+        # Convert string queue name to enum for lookup
+        try:
+            queue_enum = QueueName(queue_name)
+        except ValueError:
+            return []
+
+        queue_key = QUEUE_KEY_MAP.get(queue_enum)
+        if not queue_key:
+            return []
+
+        if queue_enum == QueueName.SCHEDULED:
+            # Scheduled queue is a sorted set
+            result = await self.redis.zrange(queue_key, 0, limit - 1)
+            return list(result) if result else []
+        else:
+            # Other queues are lists
+            result = await self.redis.lrange(queue_key, 0, limit - 1)
+            return list(result) if result else []
+
+    def _calculate_adaptive_retry_ratio(self, retry_depth: int) -> float:
+        """Calculate adaptive retry ratio based on queue pressure."""
+        if retry_depth < settings.retry_queue_warning:
+            return settings.default_retry_ratio  # Normal: 30%
+        elif retry_depth < settings.retry_queue_critical:
+            return 0.2  # Warning: 20%
+        else:
+            return 0.1  # Critical: 10%
+
+
+class HealthService:
+    """Service for health checks."""
+
+    def __init__(
+        self, redis_service: RedisService, celery_app: Optional[Celery] = None
+    ):
+        self.redis_service = redis_service
+        self.celery_app = celery_app
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Perform comprehensive health check."""
+        # Check Redis
+        redis_ok = await self.redis_service.ping()
+
+        # Check workers through Redis heartbeat mechanism
+        workers_ok = await self._check_workers_via_redis()
+
+        # Overall status
+        status = "healthy" if redis_ok and workers_ok else "unhealthy"
+
+        return {
+            "status": status,
+            "components": {
+                "redis": redis_ok,
