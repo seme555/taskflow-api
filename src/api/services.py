@@ -1373,3 +1373,4 @@ def get_queue_service() -> Optional[QueueService]:
 
 def get_health_service() -> Optional[HealthService]:
     """Get the global Health service instance."""
+    return health_service
