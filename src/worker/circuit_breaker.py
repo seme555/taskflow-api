@@ -123,3 +123,128 @@ async def call_openrouter_api(
                         await asyncio.sleep(total_delay)
                         continue
                     else:
+                        raise Exception(
+                            f"OpenRouter API rate limit exceeded after {max_retries} attempts: {response.status_code}"
+                        )
+
+                # Handle other HTTP errors
+                if response.status_code != 200:
+                    # Report API error to state management
+                    try:
+                        error_type = None
+                        if response.status_code == 401:
+                            error_type = "api_key_invalid"
+                        elif response.status_code == 402:
+                            error_type = "credits_exhausted"
+                        elif response.status_code == 503:
+                            error_type = "service_unavailable"
+
+                        await report_openrouter_error(
+                            error_message=f"HTTP {response.status_code}: {response.text[:200]}",
+                            status_code=response.status_code,
+                            error_type=error_type,
+                        )
+                    except Exception:
+                        pass  # Don't fail the main operation if reporting fails
+
+                    # For non-rate-limit errors, don't retry here - let the circuit breaker handle it
+                    raise Exception(f"OpenRouter API error: {response.status_code}")
+
+                # Success! Report to state management
+                try:
+                    await report_openrouter_success()
+                except Exception:
+                    pass  # Don't fail the main operation if reporting fails
+
+                result = response.json()
+                return result["choices"][0]["message"]["content"]
+
+        except httpx.TimeoutException:
+            # Report timeout error to state management
+            if attempt == max_retries - 1:  # Only report on final attempt
+                try:
+                    await report_openrouter_error(
+                        error_message="API request timeout", error_type="timeout"
+                    )
+                except Exception:
+                    pass
+
+            if attempt < max_retries - 1:
+                delay = calculate_backoff_delay(attempt, base_delay=2.0, max_delay=60.0)
+                await asyncio.sleep(delay)
+                continue
+            else:
+                raise Exception("OpenRouter API timeout after multiple attempts")
+        except httpx.RequestError as e:
+            # Report network error to state management
+            if attempt == max_retries - 1:  # Only report on final attempt
+                try:
+                    await report_openrouter_error(
+                        error_message=f"Network error: {str(e)}",
+                        error_type="network_error",
+                    )
+                except Exception:
+                    pass
+
+            if attempt < max_retries - 1:
+                delay = calculate_backoff_delay(attempt, base_delay=1.0, max_delay=30.0)
+                await asyncio.sleep(delay)
+                continue
+            else:
+                raise Exception(f"OpenRouter API request error: {str(e)}")
+
+    # If we get here, all attempts failed - report general error
+    try:
+        await report_openrouter_error(
+            error_message="All API retry attempts failed",
+            error_type="service_unavailable",
+        )
+    except Exception:
+        pass
+
+    raise Exception("OpenRouter API call failed after all retry attempts")
+
+
+def get_container_id() -> str:
+    """Get Docker container ID from /proc/self/cgroup or hostname."""
+    try:
+        # Try to get container ID from cgroup (most reliable method)
+        with open("/proc/self/cgroup", "r") as f:
+            for line in f:
+                if "docker" in line:
+                    # Extract container ID from cgroup path
+                    parts = line.strip().split("/")
+                    for part in reversed(parts):
+                        if (
+                            len(part) == 64 and part.isalnum()
+                        ):  # Docker container ID format
+                            return part[:12]  # Return short container ID
+                        elif part.startswith("docker-") and part.endswith(".scope"):
+                            # systemd format: docker-<container_id>.scope
+                            container_id = part[
+                                7:-6
+                            ]  # Remove 'docker-' prefix and '.scope' suffix
+                            return container_id[:12]
+
+        # Fallback: use hostname (often set to container ID in Docker)
+        hostname = os.uname().nodename
+        if len(hostname) >= 12:
+            return hostname[:12]
+
+        return hostname
+
+    except Exception:
+        # Final fallback: use hostname or unknown
+        try:
+            return os.uname().nodename[:12]
+        except Exception:
+            return "unknown"
+
+
+def get_circuit_breaker_status() -> dict:
+    """Get current circuit breaker status for this worker."""
+    try:
+        # Get available attributes safely
+        status = {
+            "state": openrouter_breaker.current_state,
+            "fail_count": getattr(openrouter_breaker, "fail_counter", 0),
