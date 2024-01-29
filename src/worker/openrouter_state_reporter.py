@@ -248,3 +248,128 @@ class WorkerOpenRouterReporter:
         if status_code == 401:
             return "api_key_invalid"
         elif status_code == 402:
+            return "credits_exhausted"
+        elif status_code == 429:
+            return "rate_limited"
+        elif status_code == 503:
+            return "service_unavailable"
+
+        # Check error message patterns
+        if any(
+            pattern in error_lower
+            for pattern in ["invalid api key", "unauthorized", "authentication failed"]
+        ):
+            return "api_key_invalid"
+        elif any(
+            pattern in error_lower
+            for pattern in [
+                "insufficient credits",
+                "credits exhausted",
+                "quota exceeded",
+            ]
+        ):
+            return "credits_exhausted"
+        elif any(
+            pattern in error_lower for pattern in ["rate limit", "too many requests"]
+        ):
+            return "rate_limited"
+        elif any(
+            pattern in error_lower
+            for pattern in ["service unavailable", "server error", "internal error"]
+        ):
+            return "service_unavailable"
+        elif any(pattern in error_lower for pattern in ["timeout", "timed out"]):
+            return "timeout"
+        elif any(
+            pattern in error_lower for pattern in ["network", "connection", "dns"]
+        ):
+            return "network_error"
+
+        return "unknown_error"
+
+    async def _update_metrics(
+        self, redis_client: aioredis.Redis, state: str, is_success: bool
+    ) -> None:
+        """Update OpenRouter metrics."""
+        try:
+            current_time = datetime.now(timezone.utc)
+            date_key = current_time.strftime("%Y-%m-%d")
+            metrics_key = f"openrouter:metrics:{date_key}"
+
+            async with redis_client.pipeline() as pipe:
+                await pipe.hincrby(metrics_key, "total_calls", 1)
+
+                if is_success:
+                    await pipe.hincrby(metrics_key, "successful_calls", 1)
+                else:
+                    await pipe.hincrby(metrics_key, "failed_calls", 1)
+
+                await pipe.hincrby(metrics_key, f"state_{state}", 1)
+                await pipe.expire(metrics_key, 30 * 24 * 3600)  # 30 days
+
+                await pipe.execute()
+
+        except Exception as e:
+            print(f"Error updating metrics from worker: {e}")
+
+    async def _log_worker_error(
+        self,
+        redis_client: aioredis.Redis,
+        worker_id: str,
+        error_type: str,
+        error_message: str,
+        status_code: Optional[int],
+    ) -> None:
+        """Log worker error for debugging."""
+        try:
+            current_time = datetime.now(timezone.utc)
+            log_key = f"openrouter:worker_errors:{current_time.strftime('%Y-%m-%d')}"
+
+            error_log = {
+                "timestamp": current_time.isoformat(),
+                "worker_id": worker_id,
+                "error_type": error_type,
+                "error_message": error_message,
+                "status_code": status_code,
+            }
+
+            # Add to list of errors for the day
+            await redis_client.lpush(log_key, str(error_log))
+            await redis_client.ltrim(log_key, 0, 999)  # Keep last 1000 errors
+            await redis_client.expire(log_key, 7 * 24 * 3600)  # Keep for 7 days
+
+        except Exception as e:
+            print(f"Error logging worker error: {e}")
+
+
+# Global instance for easy access
+_reporter_instance: Optional[WorkerOpenRouterReporter] = None
+
+
+def get_openrouter_reporter() -> WorkerOpenRouterReporter:
+    """Get global OpenRouter reporter instance."""
+    global _reporter_instance
+    if _reporter_instance is None:
+        _reporter_instance = WorkerOpenRouterReporter()
+    return _reporter_instance
+
+
+async def report_openrouter_error(
+    error_message: str,
+    status_code: Optional[int] = None,
+    error_type: Optional[str] = None,
+) -> bool:
+    """
+    Convenience function to report OpenRouter error from worker.
+
+    Args:
+        error_message: The error message
+        status_code: HTTP status code if available
+        error_type: Specific error type if known
+
+    Returns:
+        True if report successful, False otherwise
+    """
+    reporter = get_openrouter_reporter()
+    return await reporter.report_api_error(error_message, status_code, error_type)
+
