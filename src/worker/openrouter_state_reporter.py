@@ -123,3 +123,128 @@ class WorkerOpenRouterReporter:
                 ]:
                     consecutive_failures += 1
 
+                # Map error types to states
+                error_state_map = {
+                    "api_key_invalid": "api_key_invalid",
+                    "credits_exhausted": "credits_exhausted",
+                    "rate_limited": "rate_limited",
+                    "service_unavailable": "service_unavailable",
+                    "timeout": "error",
+                    "network_error": "error",
+                }
+
+                new_state = error_state_map.get(error_type, "error")
+                circuit_breaker_open = consecutive_failures >= 5
+
+                # Create error details
+                error_details = {
+                    "error_type": error_type,
+                    "error_message": error_message,
+                    "worker_id": worker_id,
+                    "timestamp": current_time.isoformat(),
+                }
+
+                if status_code:
+                    error_details["status_code"] = status_code
+
+                # Update state
+                state_data = {
+                    "state": new_state,
+                    "message": f"Worker reported: {error_type}",
+                    "last_check": current_time.isoformat(),
+                    "last_api_call": current_time.isoformat(),
+                    "consecutive_failures": str(consecutive_failures),
+                    "circuit_breaker_open": str(circuit_breaker_open).lower(),
+                    "error_details": str(error_details),  # JSON string
+                }
+
+                # Handle rate limiting
+                if error_type == "rate_limited":
+                    # Estimate rate limit reset time (usually 1 minute for OpenRouter)
+                    from datetime import timedelta
+
+                    rate_limit_reset = current_time + timedelta(minutes=1)
+                    state_data["rate_limit_reset"] = rate_limit_reset.isoformat()
+
+                # Update state in Redis
+                await redis_client.hset(STATE_KEY, mapping=state_data)
+                await redis_client.expire(STATE_KEY, 600)  # 10 minutes TTL
+
+                # Update metrics
+                await self._update_metrics(redis_client, new_state, False)
+
+                # Log the error for debugging
+                await self._log_worker_error(
+                    redis_client, worker_id, error_type, error_message, status_code
+                )
+
+                return True
+
+            finally:
+                # Release lock
+                await redis_client.delete(LOCK_KEY)
+
+        except Exception as e:
+            print(f"Error reporting OpenRouter error from worker: {e}")
+            return False
+
+    async def report_api_success(self) -> bool:
+        """
+        Report a successful OpenRouter API call.
+
+        Returns:
+            True if report was successful, False otherwise
+        """
+        try:
+            redis_client = await self._get_redis()
+            worker_id = self._get_worker_id()
+
+            STATE_KEY = "openrouter:state"
+            LOCK_KEY = "openrouter:state:lock"
+            LOCK_TIMEOUT = 10
+
+            # Try to acquire lock for state update
+            lock_acquired = await redis_client.set(
+                LOCK_KEY, f"worker-{worker_id}", nx=True, ex=LOCK_TIMEOUT
+            )
+
+            if not lock_acquired:
+                return False  # Another process is updating
+
+            try:
+                current_time = datetime.now(timezone.utc)
+
+                # Update state to active with success
+                state_data = {
+                    "state": "active",
+                    "message": "Service active",
+                    "last_check": current_time.isoformat(),
+                    "last_api_call": current_time.isoformat(),
+                    "last_success": current_time.isoformat(),
+                    "consecutive_failures": "0",
+                    "circuit_breaker_open": "false",
+                }
+
+                await redis_client.hset(STATE_KEY, mapping=state_data)
+                await redis_client.expire(STATE_KEY, 600)  # 10 minutes TTL
+
+                # Update metrics
+                await self._update_metrics(redis_client, "active", True)
+
+                return True
+
+            finally:
+                await redis_client.delete(LOCK_KEY)
+
+        except Exception as e:
+            print(f"Error reporting OpenRouter success from worker: {e}")
+            return False
+
+    def _classify_error(self, error_message: str, status_code: Optional[int]) -> str:
+        """Classify error based on message and status code."""
+        error_lower = error_message.lower()
+
+        # Check status codes first
+        if status_code == 401:
+            return "api_key_invalid"
+        elif status_code == 402:
