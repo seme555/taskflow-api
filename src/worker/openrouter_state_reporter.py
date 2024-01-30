@@ -373,3 +373,13 @@ async def report_openrouter_error(
     reporter = get_openrouter_reporter()
     return await reporter.report_api_error(error_message, status_code, error_type)
 
+
+async def report_openrouter_success() -> bool:
+    """
+    Convenience function to report OpenRouter success from worker.
+
+    Returns:
+        True if report successful, False otherwise
+    """
+    reporter = get_openrouter_reporter()
+    return await reporter.report_api_success()
