@@ -123,3 +123,128 @@ class RedisTokenBucketRateLimiter:
 
         Returns:
             True if tokens were acquired, False if timeout occurred
+
+        Raises:
+            Exception: If Redis operation fails
+        """
+        redis_conn = await self._get_redis_connection()
+
+        try:
+            start_time = time.time()
+
+            while time.time() - start_time < timeout:
+                current_time = time.time()
+
+                # Execute the Lua script
+                result = await redis_conn.eval(
+                    self.lua_script,
+                    2,  # Number of keys
+                    self.bucket_key,
+                    self.config_key,
+                    current_time,
+                    tokens,
+                )
+
+                success = bool(result[0])
+
+                if success:
+                    return True
+
+                # Calculate wait time (result[4] contains wait time if available)
+                if len(result) > 4:
+                    wait_time = float(result[4])
+                    # Cap wait time to remaining timeout
+                    remaining_timeout = timeout - (time.time() - start_time)
+                    actual_wait = min(wait_time, remaining_timeout)
+
+                    if actual_wait > 0:
+                        await asyncio.sleep(actual_wait)
+                    else:
+                        break
+                else:
+                    # Fallback: short wait
+                    await asyncio.sleep(0.1)
+
+            return False  # Timeout occurred
+
+        finally:
+            await redis_conn.aclose()
+
+    async def get_bucket_status(self) -> Dict[str, Any]:
+        """
+        Get current bucket status for monitoring.
+
+        Returns:
+            Dictionary with bucket status information
+        """
+        redis_conn = await self._get_redis_connection()
+
+        try:
+            # Get bucket state
+            bucket_data = await redis_conn.hmget(
+                self.bucket_key, "tokens", "last_refill", "capacity", "refill_rate"
+            )
+
+            # Get rate limit config
+            config_data = await redis_conn.hmget(
+                self.config_key, "requests", "interval", "updated_at"
+            )
+
+            current_time = time.time()
+
+            # Parse bucket data
+            tokens = float(bucket_data[0]) if bucket_data[0] else 0
+            last_refill = float(bucket_data[1]) if bucket_data[1] else current_time
+            capacity = float(bucket_data[2]) if bucket_data[2] else 0
+            refill_rate = float(bucket_data[3]) if bucket_data[3] else 0
+
+            # Calculate current tokens (with refill)
+            if refill_rate > 0:
+                time_elapsed = current_time - last_refill
+                tokens_to_add = time_elapsed * refill_rate
+                current_tokens = min(capacity, tokens + tokens_to_add)
+            else:
+                current_tokens = tokens
+
+            return {
+                "current_tokens": current_tokens,
+                "capacity": capacity,
+                "refill_rate": refill_rate,
+                "last_refill": last_refill,
+                "utilization_percent": (1 - current_tokens / capacity) * 100
+                if capacity > 0
+                else 0,
+                "config": {
+                    "requests": config_data[0],
+                    "interval": config_data[1],
+                    "updated_at": config_data[2],
+                },
+                "timestamp": current_time,
+            }
+
+        finally:
+            await redis_conn.aclose()
+
+    async def reset_bucket(self) -> None:
+        """Reset the token bucket to full capacity."""
+        redis_conn = await self._get_redis_connection()
+
+        try:
+            await redis_conn.delete(self.bucket_key)
+        finally:
+            await redis_conn.aclose()
+
+    async def update_rate_limit_config(self, requests: int, interval: str) -> None:
+        """
+        Manually update rate limit configuration.
+
+        Args:
+            requests: Number of requests allowed
+            interval: Time interval (e.g., "10s", "1m")
+        """
+        redis_conn = await self._get_redis_connection()
+
+        try:
+            await redis_conn.hset(
+                self.config_key,
+                mapping={
