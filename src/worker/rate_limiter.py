@@ -248,3 +248,82 @@ class RedisTokenBucketRateLimiter:
             await redis_conn.hset(
                 self.config_key,
                 mapping={
+                    "requests": str(requests),
+                    "interval": interval,
+                    "updated_at": time.time(),
+                },
+            )
+
+            # Reset bucket to apply new configuration
+            await self.reset_bucket()
+
+        finally:
+            await redis_conn.aclose()
+
+
+# Global rate limiter instance
+global_rate_limiter = RedisTokenBucketRateLimiter()
+
+
+async def wait_for_rate_limit_token(tokens: int = 1, timeout: float = 30.0) -> bool:
+    """
+    Convenience function to acquire rate limit tokens.
+
+    Args:
+        tokens: Number of tokens to acquire
+        timeout: Maximum wait time in seconds
+
+    Returns:
+        True if tokens were acquired, False if timeout
+    """
+    return await global_rate_limiter.acquire(tokens, timeout)
+
+
+async def get_rate_limit_status() -> Dict[str, Any]:
+    """Get current rate limit status for monitoring."""
+    return await global_rate_limiter.get_bucket_status()
+
+
+# Test function for development
+async def test_rate_limiter():
+    """Test the rate limiter functionality."""
+    print("ðŸ§ª Testing Redis Token Bucket Rate Limiter")
+
+    # Reset bucket for clean test
+    await global_rate_limiter.reset_bucket()
+
+    # Set test configuration (lower limits for testing)
+    await global_rate_limiter.update_rate_limit_config(
+        5, "10s"
+    )  # 5 requests per 10 seconds
+
+    print("ðŸ“Š Initial status:")
+    status = await get_rate_limit_status()
+    print(f"   Capacity: {status['capacity']}")
+    print(f"   Current tokens: {status['current_tokens']:.2f}")
+    print(f"   Refill rate: {status['refill_rate']:.2f} tokens/second")
+
+    # Test acquiring tokens
+    print("\nðŸ”„ Testing token acquisition:")
+    for i in range(7):  # Try to get more tokens than capacity
+        start_time = time.time()
+        success = await wait_for_rate_limit_token(1, timeout=2.0)
+        elapsed = time.time() - start_time
+
+        if success:
+            print(f"   Request {i+1}: âœ… Acquired token in {elapsed:.3f}s")
+        else:
+            print(f"   Request {i+1}: âŒ Timeout after {elapsed:.3f}s")
+
+        # Show current status
+        status = await get_rate_limit_status()
+        print(f"      Remaining tokens: {status['current_tokens']:.2f}")
+
+    print("\nðŸ“ˆ Final status:")
+    status = await get_rate_limit_status()
+    print(f"   Current tokens: {status['current_tokens']:.2f}")
+    print(f"   Utilization: {status['utilization_percent']:.1f}%")
+
+
+if __name__ == "__main__":
+    asyncio.run(test_rate_limiter())
