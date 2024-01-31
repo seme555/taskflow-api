@@ -248,3 +248,128 @@ def calculate_retry_delay(retry_count: int, error_type: str) -> float:
 async def update_task_state(
     redis_conn: aioredis.Redis, task_id: str, state: str, **kwargs
 ) -> None:
+    """Update task state and metadata in Redis asynchronously."""
+    current_time = datetime.utcnow().isoformat()
+    fields = {"state": state, "updated_at": current_time}
+    fields.update(kwargs)
+
+    # Get current state for counter updates
+    current_task_data = await redis_conn.hgetall(f"task:{task_id}")
+    old_state = current_task_data.get("state") if current_task_data else None
+
+    # Add state-specific timestamps
+    if state == "ACTIVE":
+        fields["started_at"] = current_time
+    elif state == "COMPLETED":
+        fields["completed_at"] = current_time
+    elif state == "FAILED":
+        fields["failed_at"] = current_time
+    elif state == "DLQ":
+        fields["dlq_at"] = current_time
+    elif state == "SCHEDULED":
+        fields["scheduled_at"] = current_time
+
+    # Handle error history and retry timestamps
+    if "last_error" in kwargs and kwargs["last_error"]:
+        # Get existing data
+        existing_data = await redis_conn.hgetall(f"task:{task_id}")
+
+        # Handle error history
+        error_history = []
+        if existing_data.get("error_history"):
+            try:
+                error_history = json.loads(existing_data["error_history"])
+            except (json.JSONDecodeError, TypeError):
+                error_history = []
+
+        # Add new error to history
+        error_entry = {
+            "timestamp": current_time,
+            "error": kwargs["last_error"],
+            "error_type": kwargs.get("error_type", "Unknown"),
+            "retry_count": kwargs.get("retry_count", 0),
+            "state_transition": f"{existing_data.get('state', 'UNKNOWN')} -> {state}",
+        }
+        error_history.append(error_entry)
+        fields["error_history"] = json.dumps(error_history)
+
+        # Handle retry timestamps - track each retry attempt
+        if state == "SCHEDULED":  # This is a retry being scheduled
+            retry_timestamps = []
+            if existing_data.get("retry_timestamps"):
+                try:
+                    retry_timestamps = json.loads(existing_data["retry_timestamps"])
+                except (json.JSONDecodeError, TypeError):
+                    retry_timestamps = []
+
+            retry_entry = {
+                "retry_number": kwargs.get("retry_count", 0),
+                "scheduled_at": current_time,
+                "retry_after": kwargs.get("retry_after"),
+                "error_type": kwargs.get("error_type", "Unknown"),
+                "delay_seconds": None,  # Will be calculated when actually retried
+            }
+            retry_timestamps.append(retry_entry)
+            fields["retry_timestamps"] = json.dumps(retry_timestamps)
+
+    # Track when a retry actually starts (PENDING -> ACTIVE transition)
+    if state == "ACTIVE":
+        existing_data = await redis_conn.hgetall(f"task:{task_id}")
+        if existing_data.get("retry_timestamps"):
+            try:
+                retry_timestamps = json.loads(existing_data["retry_timestamps"])
+                # Find the most recent retry entry and update it with actual start time
+                if retry_timestamps:
+                    latest_retry = retry_timestamps[-1]
+                    if "actual_start_at" not in latest_retry:
+                        latest_retry["actual_start_at"] = current_time
+                        # Calculate actual delay
+                        if latest_retry.get("scheduled_at"):
+                            scheduled_time = datetime.fromisoformat(
+                                latest_retry["scheduled_at"].replace("Z", "+00:00")
+                            )
+                            actual_time = datetime.fromisoformat(
+                                current_time.replace("Z", "+00:00")
+                            )
+                            delay_seconds = (
+                                actual_time - scheduled_time
+                            ).total_seconds()
+                            latest_retry["delay_seconds"] = delay_seconds
+                        fields["retry_timestamps"] = json.dumps(retry_timestamps)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass  # If parsing fails, just continue without updating retry timestamps
+
+    # Serialize complex types
+    for key, value in fields.items():
+        if (
+            isinstance(value, (dict, list)) and key != "error_history"
+        ):  # error_history already serialized
+            fields[key] = json.dumps(value)
+        elif value is not None:
+            fields[key] = str(value)
+
+    # Update task data atomically
+    async with redis_conn.pipeline(transaction=True) as pipe:
+        # Update task data
+        await pipe.hset(f"task:{task_id}", mapping=fields)
+        await pipe.execute()
+
+    # Publish real-time update
+    try:
+        # Get current queue depths for the update
+        queue_depths = {}
+        queue_depths["primary"] = await redis_conn.llen("tasks:pending:primary")
+        queue_depths["retry"] = await redis_conn.llen("tasks:pending:retry")
+        queue_depths["scheduled"] = await redis_conn.zcard("tasks:scheduled")
+        queue_depths["dlq"] = await redis_conn.llen("dlq:tasks")
+
+        # Publish update
+        update_data = {
+            "type": "task_state_changed",
+            "task_id": task_id,
+            "old_state": old_state,
+            "new_state": state,
+            "queue_depths": queue_depths,
+            "timestamp": current_time,
+        }
+
