@@ -123,3 +123,87 @@ start_worker_with_retry() {
         export PYTHONUNBUFFERED=1
         
         # Build Celery command arguments
+        CELERY_ARGS=(
+            "celery"
+            "-A" "tasks"
+            "worker"
+            "--loglevel=${LOG_LEVEL:-info}"
+            "--concurrency=${CELERY_WORKER_CONCURRENCY:-4}"
+            "--prefetch-multiplier=${CELERY_WORKER_PREFETCH_MULTIPLIER:-1}"
+            "--max-tasks-per-child=${WORKER_MAX_TASKS_PER_CHILD:-1000}"
+            "--max-memory-per-child=${WORKER_MAX_MEMORY_PER_CHILD:-200000}"
+            "--without-gossip"
+            "--without-mingle" 
+            "--events"
+            "--pool=prefork"
+            "--time-limit=${CELERY_TASK_TIME_LIMIT:-900}"
+            "--soft-time-limit=${CELERY_TASK_SOFT_TIME_LIMIT:-600}"
+        )
+        
+        # Add hostname for better identification
+        HOSTNAME=${HOSTNAME:-worker-$}
+        CELERY_ARGS+=("--hostname" "${HOSTNAME}@%h")
+        
+        log "Starting worker with command: uv run ${CELERY_ARGS[*]}"
+        
+        # Start the worker (this will block)
+        if uv run "${CELERY_ARGS[@]}"; then
+            log "Worker started successfully"
+            return 0
+        else
+            log "Worker startup failed (attempt $attempt)"
+            # Kill consumer if worker fails
+            if [ -f /tmp/consumer.pid ]; then
+                CONSUMER_PID=$(cat /tmp/consumer.pid)
+                kill $CONSUMER_PID 2>/dev/null || true
+                rm -f /tmp/consumer.pid
+            fi
+            
+            if [ $attempt -lt $max_retries ]; then
+                log "Retrying in $retry_delay seconds..."
+                sleep $retry_delay
+            else
+                log "Max retries exceeded. Worker startup failed."
+                exit 1
+            fi
+        fi
+    done
+}
+
+# Function to handle shutdown signals
+cleanup() {
+    log "Received shutdown signal, cleaning up..."
+    
+    # Kill consumer if running
+    if [ -f /tmp/consumer.pid ]; then
+        CONSUMER_PID=$(cat /tmp/consumer.pid)
+        log "Stopping consumer (PID: $CONSUMER_PID)..."
+        kill $CONSUMER_PID 2>/dev/null || true
+        rm -f /tmp/consumer.pid
+    fi
+    
+    # Kill any remaining processes
+    pkill -f "python consumer.py" 2>/dev/null || true
+    
+    log "Cleanup completed"
+    exit 0
+}
+
+# Set up signal handlers
+trap cleanup SIGTERM SIGINT
+
+# Main execution
+log "Environment check..."
+log "REDIS_URL: ${REDIS_URL:-not set}"
+log "CELERY_BROKER_URL: ${CELERY_BROKER_URL:-not set}"
+log "CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-not set}"
+
+# Health check (non-blocking)
+if check_redis; then
+    log "Health check: PASSED"
+else
+    log "Health check: FAILED (continuing anyway)"
+fi
+
+# Start worker with retry logic
+start_worker_with_retry
