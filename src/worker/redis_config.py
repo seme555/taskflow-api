@@ -373,3 +373,5 @@ async def get_worker_blocking_redis() -> WorkerBlockingRedisClient:
 
 async def get_worker_task_redis() -> WorkerTaskRedisClient:
     """Get a Redis client optimized for task management in workers."""
+    manager = await get_worker_redis_manager()
+    return WorkerTaskRedisClient(manager)
