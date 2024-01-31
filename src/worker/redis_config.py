@@ -248,3 +248,128 @@ class WorkerRedisConnectionManager:
 
         return stats
 
+
+# Specialized Redis clients for worker operations
+class WorkerBlockingRedisClient:
+    """Redis client optimized for blocking operations in workers."""
+
+    def __init__(self, connection_manager: WorkerRedisConnectionManager):
+        self.connection_manager = connection_manager
+
+    async def blpop(self, keys, timeout: int = 0):
+        """
+        Blocking list pop with worker-optimized timeout handling.
+
+        Args:
+            keys: List of keys to pop from
+            timeout: Timeout in seconds (0 = block indefinitely)
+        """
+        # Use longer socket timeout for blocking operations
+        socket_timeout = max(
+            timeout + 30 if timeout > 0 else WorkerRedisConfig.BLOCKING_TIMEOUT,
+            WorkerRedisConfig.BLOCKING_TIMEOUT,
+        )
+
+        async with self.connection_manager.get_connection(
+            timeout=socket_timeout
+        ) as redis_client:
+            return await redis_client.blpop(keys, timeout=timeout)
+
+    async def brpop(self, keys, timeout: int = 0):
+        """
+        Blocking right pop with worker-optimized timeout handling.
+
+        Args:
+            keys: List of keys to pop from
+            timeout: Timeout in seconds (0 = block indefinitely)
+        """
+        socket_timeout = max(
+            timeout + 30 if timeout > 0 else WorkerRedisConfig.BLOCKING_TIMEOUT,
+            WorkerRedisConfig.BLOCKING_TIMEOUT,
+        )
+
+        async with self.connection_manager.get_connection(
+            timeout=socket_timeout
+        ) as redis_client:
+            return await redis_client.brpop(keys, timeout=timeout)
+
+
+class WorkerTaskRedisClient:
+    """Redis client optimized for task state management in workers."""
+
+    def __init__(self, connection_manager: WorkerRedisConnectionManager):
+        self.connection_manager = connection_manager
+
+    @asynccontextmanager
+    async def pipeline(self, transaction: bool = True):
+        """
+        Get a Redis pipeline optimized for task updates.
+
+        Args:
+            transaction: Whether to use transaction mode
+        """
+        async with self.connection_manager.get_connection(
+            timeout=WorkerRedisConfig.PIPELINE_TIMEOUT
+        ) as redis_client:
+            async with redis_client.pipeline(transaction=transaction) as pipe:
+                yield pipe
+
+    async def update_heartbeat(self, worker_id: str):
+        """Update worker heartbeat with optimized timeout."""
+        async with self.connection_manager.get_connection(
+            timeout=WorkerRedisConfig.HEARTBEAT_TIMEOUT
+        ) as redis_client:
+            import time
+
+            current_time = time.time()
+            heartbeat_key = f"worker:heartbeat:{worker_id}"
+            await redis_client.setex(heartbeat_key, 90, current_time)
+
+
+# Global connection manager instance for workers
+_worker_connection_manager: Optional[WorkerRedisConnectionManager] = None
+
+
+async def initialize_worker_redis(redis_url: str) -> WorkerRedisConnectionManager:
+    """Initialize the global worker Redis connection manager."""
+    global _worker_connection_manager
+
+    if _worker_connection_manager is not None:
+        await _worker_connection_manager.close()
+
+    _worker_connection_manager = WorkerRedisConnectionManager(redis_url)
+    await _worker_connection_manager.initialize()
+
+    return _worker_connection_manager
+
+
+async def get_worker_redis_manager() -> WorkerRedisConnectionManager:
+    """Get the global worker Redis connection manager."""
+    if _worker_connection_manager is None:
+        raise RuntimeError("Worker Redis connection manager not initialized")
+    return _worker_connection_manager
+
+
+async def close_worker_redis() -> None:
+    """Close the global worker Redis connection manager."""
+    global _worker_connection_manager
+    if _worker_connection_manager is not None:
+        await _worker_connection_manager.close()
+        _worker_connection_manager = None
+
+
+# Convenience functions for different Redis client types
+async def get_worker_standard_redis() -> redis.Redis:
+    """Get a standard Redis client for worker operations."""
+    manager = await get_worker_redis_manager()
+    return manager.redis
+
+
+async def get_worker_blocking_redis() -> WorkerBlockingRedisClient:
+    """Get a Redis client optimized for blocking operations in workers."""
+    manager = await get_worker_redis_manager()
+    return WorkerBlockingRedisClient(manager)
+
+
+async def get_worker_task_redis() -> WorkerTaskRedisClient:
+    """Get a Redis client optimized for task management in workers."""
