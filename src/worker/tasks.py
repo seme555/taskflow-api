@@ -123,3 +123,128 @@ def get_worker_health(panel, **kwargs):
 
 
 @Panel.register
+def reset_worker_circuit_breaker(panel, **kwargs):
+    """Reset the circuit breaker on this worker (invoked via broadcast)."""
+    try:
+        reset_circuit_breaker()
+        return {
+            "status": "success",
+            "message": "Circuit breaker reset.",
+            "new_state": get_circuit_breaker_status(),
+            "worker_id": f"worker-{os.getpid()}",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "worker_id": f"worker-{os.getpid()}",
+        }
+
+
+@Panel.register
+def open_worker_circuit_breaker(panel, **kwargs):
+    """Open the circuit breaker on this worker (invoked via broadcast)."""
+    try:
+        open_circuit_breaker()
+        return {
+            "status": "success",
+            "message": "Circuit breaker opened.",
+            "new_state": get_circuit_breaker_status(),
+            "worker_id": f"worker-{os.getpid()}",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "worker_id": f"worker-{os.getpid()}",
+        }
+
+
+# --- Async Redis and State Management Helpers -----------------------------
+
+
+async def get_async_redis_connection() -> aioredis.Redis:
+    """Get an optimized async Redis connection."""
+    try:
+        return await get_worker_standard_redis()
+    except RuntimeError:
+        # Fallback to direct connection if worker Redis not initialized
+        return aioredis.from_url(settings.redis_url, decode_responses=True)
+
+
+def classify_error(status_code: int, error_message: str) -> str:
+    """Classify error as transient or permanent."""
+    # First check for dependency/environment errors that should go directly to DLQ
+    dependency_error_patterns = [
+        "poppler installed and in PATH",
+        "command not found",
+        "no such file or directory",
+        "permission denied",
+        "module not found",
+        "import error",
+        "library not found",
+        "missing dependency",
+        "environment variable not set",
+        "configuration error",
+        "invalid configuration",
+        "database connection failed",
+        "redis connection failed",
+    ]
+
+    error_lower = error_message.lower()
+    for pattern in dependency_error_patterns:
+        if pattern in error_lower:
+            return "DependencyError"
+
+    # Check for other permanent errors based on content
+    permanent_error_patterns = [
+        "invalid api key",
+        "authentication failed",
+        "unauthorized",
+        "forbidden",
+        "not found",
+        "bad request",
+        "invalid request",
+        "malformed",
+        "syntax error",
+        "parse error",
+        "invalid json",
+        "invalid format",
+        "unsupported format",
+        "file too large",
+        "quota exceeded",
+        "limit exceeded",
+    ]
+
+    for pattern in permanent_error_patterns:
+        if pattern in error_lower:
+            return "PermanentError"
+
+    # Check HTTP status codes
+    if status_code in ERROR_CLASSIFICATIONS:
+        err_cls = ERROR_CLASSIFICATIONS[status_code]
+        if err_cls is TransientError:
+            if status_code == 402:
+                return "InsufficientCredits"
+            if status_code == 429:
+                return "RateLimitError"
+            if status_code == 503:
+                return "ServiceUnavailable"
+            return "NetworkTimeout"
+        return "PermanentError"
+
+    # Fallback to default retry behavior for unknown errors
+    return "Default"
+
+
+def calculate_retry_delay(retry_count: int, error_type: str) -> float:
+    """Calculate retry delay with exponential backoff and jitter."""
+    schedule = RETRY_SCHEDULES.get(error_type, RETRY_SCHEDULES["Default"])
+    base_delay = schedule[min(retry_count, len(schedule) - 1)]
+    jitter = random.uniform(0, base_delay * 0.1)
+    return base_delay + jitter
+
+
+async def update_task_state(
+    redis_conn: aioredis.Redis, task_id: str, state: str, **kwargs
+) -> None:
