@@ -373,3 +373,128 @@ async def update_task_state(
             "timestamp": current_time,
         }
 
+        await redis_conn.publish("queue-updates", json.dumps(update_data))
+
+    except Exception as e:
+        # Don't fail the task update if publishing fails
+        print(f"Warning: Failed to publish queue update: {e}")
+
+
+async def move_to_dlq(
+    redis_conn: aioredis.Redis, task_id: str, reason: str, error_type: str = "Unknown"
+) -> None:
+    """Move a task to the dead-letter queue asynchronously."""
+    await update_task_state(
+        redis_conn,
+        task_id,
+        "DLQ",
+        last_error=reason,
+        error_type=error_type,
+        completed_at=datetime.utcnow().isoformat(),
+    )
+    await redis_conn.lpush("dlq:tasks", task_id)
+
+
+async def schedule_task_for_retry(
+    redis_conn: aioredis.Redis, task_id: str, retry_count: int, exc: Exception
+) -> None:
+    """Schedule a task for a future retry by adding it to a sorted set."""
+    error_type = classify_error(getattr(exc, "status_code", 0), str(exc))
+    delay = calculate_retry_delay(retry_count, error_type)
+    retry_at_timestamp = time.time() + delay
+
+    await update_task_state(
+        redis_conn,
+        task_id,
+        "SCHEDULED",
+        retry_count=retry_count + 1,
+        last_error=str(exc),
+        error_type=error_type,
+        retry_after=datetime.fromtimestamp(retry_at_timestamp).isoformat(),
+    )
+    await redis_conn.zadd("tasks:scheduled", {task_id: retry_at_timestamp})
+
+
+async def summarize_text_with_pybreaker(content: str) -> str:
+    """Summarize text via OpenRouter protected by centralized state management."""
+    if not settings.openrouter_api_key:
+        raise PermanentError("OpenRouter API key not configured")
+
+    try:
+        # Check centralized OpenRouter state before attempting API call
+        redis_conn = await get_async_redis_connection()
+        from openrouter_state import OpenRouterStateManager
+
+        state_manager = OpenRouterStateManager(redis_conn)
+        should_skip, skip_reason = await state_manager.should_skip_api_call()
+
+        if should_skip:
+            # Don't attempt API call - fail immediately for retry later
+            raise TransientError(f"OpenRouter service unavailable: {skip_reason}")
+
+        # Load the system prompt (no formatting needed - it's the complete system message)
+        system_prompt = load_prompt("summarize")
+
+        # Create the messages payload for the API with system and user roles
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Summarize this text: {content}"},
+        ]
+
+        # Call the generic OpenRouter API function (which includes rate limiting and reporting)
+        return await call_openrouter_api(messages)
+
+    except (FileNotFoundError, ValueError) as e:
+        # Prompt loading/formatting errors are permanent
+        raise PermanentError(f"Prompt error: {str(e)}")
+    except Exception as e:
+        msg = str(e)
+        if "circuit breaker" in msg.lower() or "service unavailable" in msg.lower():
+            raise TransientError(f"OpenRouter service protection: {msg}")
+
+        # Simple status code parsing
+        code = 0
+        if "status_code=" in msg:
+            try:
+                code_str = msg.split("status_code=")[1].split(" ")[0].strip()
+                code = int(code_str)
+            except (IndexError, ValueError):
+                pass
+
+        if classify_error(code, msg) == "PermanentError":
+            raise PermanentError(f"OpenRouter API error: {msg}")
+        else:
+            exc = TransientError(f"OpenRouter API error: {msg}")
+            exc.status_code = code
+            raise exc
+
+
+async def extract_pdf_with_pybreaker(
+    pdf_content_b64: str, filename: str, issue_date: str = None
+) -> str:
+    """Extract articles from PDF pages via OpenRouter protected by centralized state management."""
+    if not settings.openrouter_api_key:
+        raise PermanentError("OpenRouter API key not configured")
+
+    try:
+        # Check centralized OpenRouter state before attempting API call
+        redis_conn = await get_async_redis_connection()
+        from openrouter_state import OpenRouterStateManager
+
+        state_manager = OpenRouterStateManager(redis_conn)
+        should_skip, skip_reason = await state_manager.should_skip_api_call()
+
+        if should_skip:
+            # Don't attempt API call - fail immediately for retry later
+            raise TransientError(f"OpenRouter service unavailable: {skip_reason}")
+
+        # Decode base64 PDF content
+        pdf_bytes = base64.b64decode(pdf_content_b64)
+
+        # Convert PDF to images - this is where poppler dependency errors occur
+        try:
+            pages = convert_from_bytes(pdf_bytes, dpi=300, fmt="PNG")
+        except Exception as pdf_error:
+            # Check if this is a poppler dependency error
+            error_msg = str(pdf_error).lower()
+            if (
