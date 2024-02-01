@@ -623,3 +623,128 @@ async def extract_pdf_with_pybreaker(
             try:
                 code_str = msg.split("status_code=")[1].split(" ")[0].strip()
                 code = int(code_str)
+            except (IndexError, ValueError):
+                pass
+
+        if classify_error(code, msg) == "PermanentError":
+            raise PermanentError(f"PDF extraction API error: {msg}")
+        else:
+            exc = TransientError(f"PDF extraction API error: {msg}")
+            exc.status_code = code
+            raise exc
+
+
+# --- Celery Tasks ---------------------------------------------------------
+
+
+async def update_worker_heartbeat(redis_conn: aioredis.Redis, worker_id: str) -> None:
+    """Update worker heartbeat in Redis."""
+    heartbeat_key = f"worker:heartbeat:{worker_id}"
+    current_time = time.time()
+    await redis_conn.setex(heartbeat_key, 90, current_time)  # Expire after 90 seconds
+
+
+@app.task(name="process_task", bind=True)
+def process_task(self: Task, task_id: str) -> str:
+    """
+    Main task processor that handles different task types.
+    `bind=True` provides access to the task instance via `self`.
+    """
+    retry_count = self.request.retries  # Use Celery's built-in retry counter
+    worker_id = f"celery-{self.request.hostname}-{os.getpid()}"
+
+    async def _run_task():
+        # Get optimized Redis connection
+        redis_conn = await get_async_redis_connection()
+
+        # Update heartbeat at start of task
+        await update_worker_heartbeat(redis_conn, worker_id)
+
+        data = await redis_conn.hgetall(f"task:{task_id}")
+        if not data:
+            raise PermanentError(f"Task {task_id} not found in Redis.")
+
+        content = data.get("content", "")
+        task_type = data.get("task_type", "summarize")
+
+        if not content:
+            raise PermanentError("No content to process.")
+
+        # Check for max retries before execution
+        if retry_count >= settings.max_retries:
+            raise PermanentError(f"Max retries ({settings.max_retries}) exceeded.")
+
+        await update_task_state(redis_conn, task_id, "ACTIVE", worker_id=worker_id)
+
+        # Process based on task type
+        if task_type == "pdfxtract":
+            # Parse metadata for PDF extraction
+            metadata = {}
+            if data.get("metadata"):
+                try:
+                    metadata = json.loads(data["metadata"])
+                except json.JSONDecodeError:
+                    metadata = {}
+
+            filename = metadata.get("filename", "unknown.pdf")
+            issue_date = metadata.get("issue_date")
+
+            result = await extract_pdf_with_pybreaker(content, filename, issue_date)
+        else:
+            # Default to summarization
+            result = await summarize_text_with_pybreaker(content)
+
+        await update_task_state(
+            redis_conn,
+            task_id,
+            "COMPLETED",
+            result=result,
+            completed_at=datetime.utcnow().isoformat(),
+        )
+
+        # Update heartbeat at end of task
+        await update_worker_heartbeat(redis_conn, worker_id)
+
+        return f"Task {task_id} ({task_type}) completed successfully."
+
+    async def _handle_error(exc, error_type="TransientError"):
+        """Handle task errors with proper Redis connection."""
+        redis_conn = await get_async_redis_connection()
+
+        # Classify the error to determine proper handling
+        error_classification = classify_error(getattr(exc, "status_code", 0), str(exc))
+
+        if error_type == "PermanentError" or error_classification in [
+            "PermanentError",
+            "DependencyError",
+        ]:
+            # Send to DLQ for permanent errors and dependency errors
+            dlq_reason = (
+                "DependencyError"
+                if error_classification == "DependencyError"
+                else "PermanentError"
+            )
+            await move_to_dlq(redis_conn, task_id, str(exc), dlq_reason)
+            return f"Task {task_id} moved to DLQ ({dlq_reason}): {exc}"
+        else:
+            # Schedule for retry for transient errors
+            await schedule_task_for_retry(redis_conn, task_id, retry_count, exc)
+            return f"Task {task_id} failed, scheduled for retry."
+
+    try:
+        return asyncio.run(_run_task())
+    except PermanentError as e:
+        return asyncio.run(_handle_error(e, "PermanentError"))
+    except TransientError as e:
+        return asyncio.run(_handle_error(e, "TransientError"))
+    except Exception as e:
+        # Catch any other unexpected errors and treat them as transient
+        exc = TransientError(f"An unexpected error occurred: {str(e)}")
+        return asyncio.run(_handle_error(exc, "TransientError"))
+
+
+# Keep the old summarize_task for backward compatibility
+@app.task(name="summarize_text", bind=True)
+def summarize_task(self: Task, task_id: str) -> str:
+    """
+    Legacy summarization task - redirects to process_task.
