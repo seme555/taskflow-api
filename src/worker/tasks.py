@@ -498,3 +498,128 @@ async def extract_pdf_with_pybreaker(
             # Check if this is a poppler dependency error
             error_msg = str(pdf_error).lower()
             if (
+                "poppler" in error_msg
+                or "pdftoppm" in error_msg
+                or "command not found" in error_msg
+            ):
+                # This is a dependency error - should go directly to DLQ
+                raise PermanentError(
+                    f"PDF extraction dependency error: {str(pdf_error)}"
+                )
+            else:
+                # Re-raise the original error for other PDF processing issues
+                raise
+
+        # Load the PDF extraction prompt
+        system_prompt = load_prompt("pdfxtract")
+
+        # Process each page
+        all_pages_data = []
+
+        for page_num, page_image in enumerate(pages, 1):
+            try:
+                # Convert PIL Image to base64 for API
+                img_buffer = io.BytesIO()
+                page_image.save(img_buffer, format="PNG")
+                img_base64 = base64.b64encode(img_buffer.getvalue()).decode("utf-8")
+
+                # Create the messages payload for the API with system and user roles
+                user_content = f"Analyze this newspaper page image. Filename: {filename}, Page number: {page_num}"
+                if issue_date:
+                    user_content += f", Issue date: {issue_date}"
+
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_content},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{img_base64}"
+                                },
+                            },
+                        ],
+                    },
+                ]
+
+                # Call the OpenRouter API for this page (includes rate limiting and reporting)
+                page_result = await call_openrouter_api(messages)
+
+                # Parse the JSON response
+                try:
+                    # Clean the response by removing markdown code blocks if present
+                    cleaned_result = page_result.strip()
+                    if cleaned_result.startswith("```json"):
+                        # Remove opening ```json
+                        cleaned_result = cleaned_result[7:]
+                    if cleaned_result.startswith("```"):
+                        # Remove opening ``` (in case it's just ```)
+                        cleaned_result = cleaned_result[3:]
+                    if cleaned_result.endswith("```"):
+                        # Remove closing ```
+                        cleaned_result = cleaned_result[:-3]
+
+                    # Strip any remaining whitespace
+                    cleaned_result = cleaned_result.strip()
+
+                    page_data = json.loads(cleaned_result)
+                    # Extract the pages array from the response
+                    if "pages" in page_data and len(page_data["pages"]) > 0:
+                        all_pages_data.extend(page_data["pages"])
+                    else:
+                        # If no pages array, create a skipped page entry
+                        all_pages_data.append(
+                            {
+                                "page_number": page_num,
+                                "status": "skipped",
+                                "reason": "No valid page data returned from LLM",
+                                "articles": [],
+                            }
+                        )
+                except json.JSONDecodeError as e:
+                    # If JSON parsing fails, create a skipped page entry
+                    all_pages_data.append(
+                        {
+                            "page_number": page_num,
+                            "status": "skipped",
+                            "reason": f"JSON parsing failed: {str(e)}",
+                            "articles": [],
+                        }
+                    )
+
+            except Exception as e:
+                # If page processing fails, create a skipped page entry
+                all_pages_data.append(
+                    {
+                        "page_number": page_num,
+                        "status": "skipped",
+                        "reason": f"Page processing failed: {str(e)}",
+                        "articles": [],
+                    }
+                )
+
+        # Create the final document structure
+        final_result = {
+            "filename": filename,
+            "issue_date": issue_date or "unknown",
+            "pages": all_pages_data,
+        }
+
+        return json.dumps(final_result, ensure_ascii=False, indent=2)
+
+    except (FileNotFoundError, ValueError) as e:
+        # Prompt loading/formatting errors are permanent
+        raise PermanentError(f"PDF extraction error: {str(e)}")
+    except Exception as e:
+        msg = str(e)
+        if "circuit breaker" in msg.lower() or "service unavailable" in msg.lower():
+            raise TransientError(f"OpenRouter service protection: {msg}")
+
+        # Simple status code parsing
+        code = 0
+        if "status_code=" in msg:
+            try:
+                code_str = msg.split("status_code=")[1].split(" ")[0].strip()
+                code = int(code_str)
