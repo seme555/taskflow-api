@@ -748,3 +748,123 @@ def process_task(self: Task, task_id: str) -> str:
 def summarize_task(self: Task, task_id: str) -> str:
     """
     Legacy summarization task - redirects to process_task.
+    `bind=True` provides access to the task instance via `self`.
+    """
+    return process_task.apply_async(args=[task_id], task_id=self.request.id).get()
+
+
+@app.task(name="process_scheduled_tasks")
+def process_scheduled_tasks() -> str:
+    """
+    Periodically run by Celery Beat to move scheduled tasks back to the pending queue.
+    """
+
+    async def _run_processing():
+        # Get optimized Redis connection
+        redis_conn = await get_async_redis_connection()
+
+        now = time.time()
+        # Get up to 100 tasks that are due to be retried
+        due_tasks = await redis_conn.zrangebyscore(
+            "tasks:scheduled", 0, now, start=0, num=100
+        )
+
+        if not due_tasks:
+            return 0
+
+        # Use a pipeline for efficiency
+        async with redis_conn.pipeline() as pipe:
+            for task_id in due_tasks:
+                pipe.lpush("tasks:pending:retry", task_id)
+                pipe.zrem("tasks:scheduled", task_id)
+                # Update state to PENDING so the UI reflects it's ready to be picked up
+                await update_task_state(redis_conn, task_id, "PENDING")
+            await pipe.execute()
+
+        return len(due_tasks)
+
+    moved_count = asyncio.run(_run_processing())
+    return f"Moved {moved_count} tasks from scheduled to retry queue."
+
+
+# --- Queue Consumer Task --------------------------------------------------
+
+
+def calculate_adaptive_retry_ratio(retry_depth: int) -> float:
+    """Calculate adaptive retry ratio based on queue pressure."""
+    if retry_depth < settings.retry_queue_warning:
+        return settings.default_retry_ratio  # Normal: 30%
+    elif retry_depth < settings.retry_queue_critical:
+        return 0.2  # Warning: 20%
+    else:
+        return 0.1  # Critical: 10%
+
+
+@app.task(name="consume_tasks", bind=True)
+def consume_tasks(self: Task) -> str:
+    """
+    Consumer task that pulls task IDs from Redis queues and processes them.
+    This runs in a continuous loop on each worker.
+    """
+    import logging
+    import redis
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting task consumer on worker {self.request.hostname}")
+
+    # Use synchronous Redis for BLPOP
+    redis_conn = redis.from_url(settings.redis_url, decode_responses=True)
+
+    processed_count = 0
+
+    try:
+        while True:
+            try:
+                # Get current retry queue depth for adaptive ratio
+                retry_depth = redis_conn.llen("tasks:pending:retry")
+                retry_ratio = calculate_adaptive_retry_ratio(retry_depth)
+
+                # Decide which queue to check first based on retry ratio
+                if random.random() > retry_ratio:
+                    # Try primary queue first (70% of the time by default)
+                    queues = ["tasks:pending:primary", "tasks:pending:retry"]
+                else:
+                    # Try retry queue first (30% of the time by default)
+                    queues = ["tasks:pending:retry", "tasks:pending:primary"]
+
+                # Use BLPOP to wait for a task ID from either queue (timeout: 5 seconds)
+                result = redis_conn.blpop(queues, timeout=5)
+
+                if result is None:
+                    # Timeout occurred, continue loop (this is normal)
+                    continue
+
+                queue_name, task_id = result
+                logger.info(f"Received task {task_id} from {queue_name}")
+
+                # Remove task from the queue it came from (already done by BLPOP)
+                # Now trigger the actual task processing
+                process_task.delay(task_id)
+
+                processed_count += 1
+                logger.info(
+                    f"Dispatched task {task_id} for processing (total: {processed_count})"
+                )
+
+            except redis.RedisError as e:
+                logger.error(f"Redis error in consumer: {e}")
+                time.sleep(5)  # Wait before retrying
+                continue
+
+            except Exception as e:
+                logger.error(f"Unexpected error in consumer: {e}")
+                time.sleep(1)  # Brief pause before continuing
+                continue
+
+    except KeyboardInterrupt:
+        logger.info("Consumer task interrupted, shutting down gracefully")
+        return f"Consumer stopped after processing {processed_count} tasks"
+
+    except Exception as e:
+        logger.error(f"Consumer task failed: {e}")
+        raise
