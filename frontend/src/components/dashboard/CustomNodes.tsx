@@ -123,3 +123,8 @@ export const FailedNode: React.FC<NodeProps> = ({ data }) => (
 
 export const DeadLetterNode: React.FC<NodeProps> = ({ data }) => (
   <StatusNode
+    data={data as unknown as StatusNodeData}
+    className="bg-red-100 border-2 border-red-600 hover:bg-red-200"
+    handles={[{ type: 'target', position: Position.Left, id: 'left-target', style: errorHandleStyle }]}
+  />
+);
