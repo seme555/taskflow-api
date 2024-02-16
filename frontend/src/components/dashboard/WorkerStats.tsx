@@ -248,3 +248,19 @@ const WorkerStats: React.FC<WorkerStatsProps> = ({ isConnected }) => {
                   </div>
                   <div className="text-sm text-gray-500">Fail Count</div>
                 </div>
+              </div>
+              
+              {worker.circuit_breaker.note && (
+                <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+                  <strong>Note:</strong> {worker.circuit_breaker.note}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default WorkerStats;
