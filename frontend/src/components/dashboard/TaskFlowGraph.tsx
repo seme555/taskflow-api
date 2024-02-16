@@ -123,3 +123,96 @@ const TaskFlowGraph: React.FC<TaskFlowGraphProps> = ({ queueStatus }) => {
         type: 'completed',
         position: { x: 100, y: 250 },
         data: {
+          label: 'Completed',
+          count: queueStatus?.states.COMPLETED || 0,
+        },
+      },
+      {
+        id: 'failed',
+        type: 'failed',
+        position: { x: 560, y: 250 },
+        data: {
+          label: 'Failed',
+          count: queueStatus?.states.FAILED || 0,
+        },
+      },
+      {
+        id: 'deadLetter',
+        type: 'deadLetter',
+        position: { x: 790, y: 250 },
+        data: {
+          label: 'Dead Letter',
+          count: queueStatus?.queues.dlq || 0,
+        },
+      },
+      {
+        id: 'scheduledQueue',
+        type: 'scheduledQueue',
+        position: { x: 560, y: 400 },
+        data: {
+          label: 'Scheduled',
+          count: queueStatus?.queues.scheduled || 0,
+        },
+      },
+      {
+        id: 'retryQueue',
+        type: 'retry',
+        position: { x: 330, y: 400 },
+        data: {
+          label: 'Retry',
+          count: queueStatus?.queues.retry || 0,
+        },
+      },
+    ];
+    return nodes;
+  }, [queueStatus]);
+
+  // Define the edges (connections between nodes) - updated with custom handles
+  const initialEdges: Edge[] = useMemo(() => {
+    const edges: Edge[] = [
+      { id: 'submit-primary', source: 'submit', target: 'primaryQueue', targetHandle: 'top-target', animated: true, style: { stroke: '#1976d2', strokeWidth: 2, strokeDasharray: '5,5' } },
+      { id: 'primary-active', source: 'primaryQueue', sourceHandle: 'bottom-source', target: 'active', targetHandle: 'top-target', animated: true, style: { stroke: '#16a34a', strokeWidth: 2 } },
+      { id: 'active-completed', source: 'active', sourceHandle: 'left-source', target: 'completed', targetHandle: 'right-target', animated: true, style: { stroke: '#16a34a', strokeWidth: 2 } },
+      { id: 'active-failed', source: 'active', sourceHandle: 'right-source', target: 'failed', targetHandle: 'left-target', animated: true, style: { stroke: '#ca8a04', strokeWidth: 2 } },
+      { id: 'failed-scheduled', source: 'failed', sourceHandle: 'bottom-source', target: 'scheduledQueue', targetHandle: 'top-target', animated: true, style: { stroke: '#ca8a04', strokeWidth: 2, strokeDasharray: '5,5' } },
+      { id: 'failed-deadLetter', source: 'failed', sourceHandle: 'right-source', target: 'deadLetter', targetHandle: 'left-target', animated: true, style: { stroke: '#dc2626', strokeWidth: 2, strokeDasharray: '5,5' } },
+      { id: 'scheduled-retry', source: 'scheduledQueue', sourceHandle: 'left-source', target: 'retryQueue', targetHandle: 'right-target', animated: true, style: { stroke: '#ca8a04', strokeWidth: 2, strokeDasharray: '5,5' } },
+      { id: 'retry-active', source: 'retryQueue', sourceHandle: 'top-source', target: 'active', targetHandle: 'bottom-target', animated: true, style: { stroke: '#ca8a04', strokeWidth: 2, strokeDasharray: '5,5' } },
+    ];
+    return edges;
+  }, []);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  const onConnect = useCallback(
+    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
+    [setEdges]
+  );
+
+  // Update nodes when queueStatus changes
+  React.useEffect(() => {
+    setNodes(initialNodes);
+  }, [initialNodes, setNodes]);
+
+  return (
+    <div className="h-96 w-full border border-gray-200 rounded-lg bg-white">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onNodeClick={handleNodeClick}
+        fitView
+        attributionPosition="bottom-left"
+      >
+        <Controls />
+        <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
+      </ReactFlow>
+    </div>
+  );
+};
+
+export default TaskFlowGraph;
