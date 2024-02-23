@@ -373,3 +373,107 @@ const TasksHistory: React.FC = () => {
                           {expandedTaskId === task.task_id ? (
                             <>
                               <ChevronUp className="h-4 w-4" />
+                              <span>Hide Details</span>
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown className="h-4 w-4" />
+                              <span>View Details</span>
+                            </>
+                          )}
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => handleDeleteClick(task)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300 hover:border-red-400"
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {renderTaskDetailsCard(task)}
+                </React.Fragment>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600">
+              {(() => {
+                const totalTasks = tasksResponse.total_items;
+                const actualTasksOnPage = tasksResponse.tasks.length;
+                const currentPage = tasksResponse.page;
+                const pageSize = tasksResponse.page_size;
+                
+                if (totalTasks === 0) {
+                  return "No tasks found";
+                }
+                
+                // Calculate the actual start position for this page
+                // The backend handles pagination correctly, so we can trust the page info
+                const startLine = ((currentPage - 1) * pageSize) + 1;
+                const endLine = startLine + actualTasksOnPage - 1;
+                
+                if (actualTasksOnPage === 1) {
+                  return `Showing task ${startLine} of ${totalTasks}`;
+                }
+                
+                return `Showing tasks ${startLine}-${endLine} of ${totalTasks}`;
+              })()}
+            </p>
+            {shouldShowPagination && (
+              <div className="flex items-center space-x-2">
+                <Button
+                  onClick={() => handlePageChange(filters.page - 1)}
+                  disabled={filters.page <= 1}
+                >
+                  Previous
+                </Button>
+                <Button
+                  onClick={() => handlePageChange(filters.page + 1)}
+                  disabled={filters.page >= tasksResponse.total_pages}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Task</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete task <span className="font-mono text-sm">{taskToDelete?.task_id}</span>?
+              <br />
+              <br />
+              This will permanently remove the task from all Redis queues, states, and statistics. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={handleDeleteCancel}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleDeleteConfirm}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deleting ? 'Deleting...' : 'Delete Task'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+export default TasksHistory;
