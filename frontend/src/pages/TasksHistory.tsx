@@ -123,3 +123,128 @@ const TasksHistory: React.FC = () => {
     setDeleteModalOpen(true);
   };
 
+  const handleDeleteConfirm = async () => {
+    if (!taskToDelete) return;
+
+    setDeleting(true);
+    try {
+      await deleteTask(taskToDelete.task_id);
+      setDeleteModalOpen(false);
+      setTaskToDelete(null);
+      // Reload tasks to reflect the deletion
+      await loadTasks();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to delete task');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteModalOpen(false);
+    setTaskToDelete(null);
+  };
+
+  const toggleTaskDetails = async (taskId: string) => {
+    if (expandedTaskId === taskId) {
+      // Collapse
+      setExpandedTaskId(null);
+      setExpandedTaskDetail(null);
+    } else {
+      // Expand
+      setExpandedTaskId(taskId);
+      setLoadingDetail(true);
+      try {
+        const detail = await fetchTaskDetail(taskId);
+        setExpandedTaskDetail(detail);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch task details');
+      } finally {
+        setLoadingDetail(false);
+      }
+    }
+  };
+
+  const collapseTaskDetails = () => {
+    setExpandedTaskId(null);
+    setExpandedTaskDetail(null);
+  };
+
+  const renderTaskDetailsCard = (task: TaskSummary) => {
+    if (expandedTaskId !== task.task_id) return null;
+
+    return (
+      <TableRow>
+        <TableCell colSpan={5} className="p-0">
+          <div className="bg-gray-50 border-t border-gray-200 p-6 space-y-6">
+            {/* Header with Collapse Button */}
+            <div className="flex justify-between items-center pb-4 border-b border-gray-200">
+              <h4 className="font-semibold text-gray-700 text-lg">Task Details</h4>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={collapseTaskDetails}
+                className="flex items-center space-x-1"
+              >
+                <ChevronUp className="h-4 w-4" />
+                <span>Collapse</span>
+              </Button>
+            </div>
+
+            {loadingDetail ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500">Loading task details...</p>
+              </div>
+            ) : expandedTaskDetail ? (
+              <>
+                {/* Metadata Section */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-4 border-b border-gray-200">
+                  <div>
+                    <h5 className="font-semibold text-gray-700 mb-3">Timing Information</h5>
+                    <div className="space-y-2 text-sm">
+                      <div><span className="font-medium">Created:</span> {format(new Date(expandedTaskDetail.created_at), 'PPpp')}</div>
+                      <div><span className="font-medium">Updated:</span> {format(new Date(expandedTaskDetail.updated_at), 'PPpp')}</div>
+                      {expandedTaskDetail.completed_at && (
+                        <div><span className="font-medium">Completed:</span> {format(new Date(expandedTaskDetail.completed_at), 'PPpp')}</div>
+                      )}
+                      <div><span className="font-medium">Duration:</span> {calculateDuration(expandedTaskDetail)}</div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h5 className="font-semibold text-gray-700 mb-3">Retry Information</h5>
+                    <div className="space-y-2 text-sm">
+                      <div><span className="font-medium">Retry Count:</span> {expandedTaskDetail.retry_count} / {expandedTaskDetail.max_retries}</div>
+                      {expandedTaskDetail.retry_after && (
+                        <div><span className="font-medium">Retry After:</span> {format(new Date(expandedTaskDetail.retry_after), 'PPpp')}</div>
+                      )}
+                      {expandedTaskDetail.last_error && (
+                        <div><span className="font-medium">Last Error:</span> <span className="text-red-600 text-xs">{expandedTaskDetail.last_error}</span></div>
+                      )}
+                      {expandedTaskDetail.error_type && (
+                        <div><span className="font-medium">Error Type:</span> <span className="text-red-600 text-xs">{expandedTaskDetail.error_type}</span></div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="font-semibold text-gray-700 mb-3">Content Information</h5>
+                    <div className="space-y-2 text-sm">
+                      <div><span className="font-medium">Content Length:</span> {expandedTaskDetail.content?.length || 0} characters</div>
+                      <div><span className="font-medium">Has Result:</span> {expandedTaskDetail.result ? 'Yes' : 'No'}</div>
+                      {expandedTaskDetail.result && (
+                        <div><span className="font-medium">Result Length:</span> {expandedTaskDetail.result.length} characters</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* State History */}
+                <div>
+                  <h5 className="font-semibold text-gray-700 mb-3">State Transition History</h5>
+                  <div className="bg-white border border-gray-200 rounded-md p-4 max-h-48 overflow-y-auto">
+                    <div className="space-y-2">
+                      {expandedTaskDetail.state_history.map((entry, index) => (
+                        <div key={index} className="flex items-center justify-between py-1 border-b border-gray-100 last:border-b-0">
+                          <div className="flex items-center space-x-2">
+                            {renderStateBadge(entry.state)}
