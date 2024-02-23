@@ -248,3 +248,128 @@ const TasksHistory: React.FC = () => {
                         <div key={index} className="flex items-center justify-between py-1 border-b border-gray-100 last:border-b-0">
                           <div className="flex items-center space-x-2">
                             {renderStateBadge(entry.state)}
+                          </div>
+                          <span className="text-sm text-gray-600">
+                            {format(new Date(entry.timestamp), 'PPpp')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Error History */}
+                {expandedTaskDetail.error_history && expandedTaskDetail.error_history.length > 0 && (
+                  <div>
+                    <h5 className="font-semibold text-gray-700 mb-3">Error History</h5>
+                    <div className="bg-white border border-gray-200 rounded-md p-4 max-h-48 overflow-y-auto">
+                      <div className="space-y-3">
+                        {expandedTaskDetail.error_history.map((error, index) => (
+                          <div key={index} className="p-3 bg-red-50 border border-red-200 rounded-md">
+                            <div className="text-sm">
+                              <div className="font-medium text-red-800">Error #{index + 1}</div>
+                              <pre className="text-xs text-red-700 mt-1 whitespace-pre-wrap">{JSON.stringify(error, null, 2)}</pre>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Result Section - Only for completed tasks */}
+                {expandedTaskDetail.state === TaskState.COMPLETED && expandedTaskDetail.result && (
+                  <div>
+                    <h5 className="font-semibold text-gray-700 mb-3">Task Result</h5>
+                    <div className="bg-white border border-gray-200 rounded-md p-4 max-h-64 overflow-y-auto">
+                      <pre className="text-sm whitespace-pre-wrap text-gray-800">{expandedTaskDetail.result}</pre>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-red-500">Failed to load task details</p>
+              </div>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Tasks History</h1>
+      <div className="flex items-center space-x-4">
+        <Input
+          placeholder="Search by Task ID..."
+          value={filters.task_id}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleFilterChange('task_id', e.target.value)}
+          className="max-w-sm"
+        />
+        <Select
+          value={filters.status}
+          onValueChange={(value: string) => handleFilterChange('status', value)}
+        >
+          <SelectTrigger className="w-[180px] bg-white border border-gray-300">
+            <SelectValue placeholder="Filter by Status" />
+          </SelectTrigger>
+          <SelectContent className="bg-white border border-gray-300 shadow-lg">
+            <SelectItem value="all">All Statuses</SelectItem>
+            {Object.values(TaskState).map((state) => (
+              <SelectItem key={state} value={state}>
+                {state}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={filters.task_type}
+          onValueChange={(value: string) => handleFilterChange('task_type', value)}
+        >
+          <SelectTrigger className="w-[180px] bg-white border border-gray-300">
+            <SelectValue placeholder="Filter by Type" />
+          </SelectTrigger>
+          <SelectContent className="bg-white border border-gray-300 shadow-lg">
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="summarize">Summarize</SelectItem>
+            <SelectItem value="pdfxtract">PDF Extract</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {loading && <p>Loading...</p>}
+      {error && <p className="text-red-500">{error}</p>}
+
+      {tasksResponse && (
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Task ID</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Task Type</TableHead>
+                <TableHead>Created At</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tasksResponse.tasks.map((task: TaskSummary) => (
+                <React.Fragment key={task.task_id}>
+                  <TableRow className={expandedTaskId === task.task_id ? 'bg-blue-50' : ''}>
+                    <TableCell className="font-mono text-xs">{task.task_id}</TableCell>
+                    <TableCell>{renderStateBadge(task.state)}</TableCell>
+                    <TableCell>{renderTaskTypeBadge(getTaskType(task))}</TableCell>
+                    <TableCell>{format(new Date(task.created_at), 'PPpp')}</TableCell>
+                    <TableCell>
+                      <div className="flex space-x-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => toggleTaskDetails(task.task_id)}
+                          className="flex items-center space-x-1"
+                        >
+                          {expandedTaskId === task.task_id ? (
+                            <>
+                              <ChevronUp className="h-4 w-4" />
