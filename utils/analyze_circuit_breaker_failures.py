@@ -248,3 +248,17 @@ def analyze_error_patterns():
         print("No clear HTTP error pattern found. Check worker logs for more details.")
 
     return error_analysis
+
+
+def main():
+    try:
+        analyze_error_patterns()
+        print(
+            "\nâœ… Analysis complete. Check the detailed output above for root cause information."
+        )
+    except Exception as e:
+        print(f"âŒ Analysis failed: {e}")
+
+
+if __name__ == "__main__":
+    main()
