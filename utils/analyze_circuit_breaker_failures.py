@@ -123,3 +123,128 @@ def analyze_error_patterns():
                     # Look for circuit breaker related errors
                     if "circuit breaker" in error_msg.lower():
                         circuit_breaker_triggers.append(
+                            {
+                                "task_id": key.split(":", 1)[1],
+                                "error": error_msg,
+                                "timestamp": error_entry.get("timestamp", "unknown"),
+                            }
+                        )
+
+                    # Pattern analysis
+                    if "429" in error_msg:
+                        error_patterns["rate_limit"] += 1
+                    elif "502" in error_msg:
+                        error_patterns["bad_gateway"] += 1
+                    elif "503" in error_msg:
+                        error_patterns["service_unavailable"] += 1
+                    elif "timeout" in error_msg.lower():
+                        error_patterns["timeout"] += 1
+                    elif "insufficient credits" in error_msg.lower():
+                        error_patterns["insufficient_credits"] += 1
+                    elif "connection" in error_msg.lower():
+                        error_patterns["connection_error"] += 1
+
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    # Print analysis results
+    print("\nðŸ“Š ERROR ANALYSIS SUMMARY")
+    print("=" * 40)
+
+    print("\nðŸš¨ HTTP Error Codes:")
+    for code, count in error_analysis["http_errors"].most_common():
+        code_meanings = {
+            "429": "Too Many Requests (Rate Limited)",
+            "502": "Bad Gateway",
+            "503": "Service Unavailable",
+            "500": "Internal Server Error",
+            "401": "Unauthorized",
+            "402": "Payment Required (Insufficient Credits)",
+            "403": "Forbidden",
+            "404": "Not Found",
+        }
+        meaning = code_meanings.get(code, "Unknown")
+        print(f"   HTTP {code}: {count} occurrences - {meaning}")
+
+    print("\nðŸ·ï¸  Error Types:")
+    for error_type, count in error_analysis["error_types"].most_common():
+        print(f"   {error_type}: {count} occurrences")
+
+    print("\nðŸ”„ Error Patterns:")
+    for pattern, count in error_patterns.items():
+        print(f"   {pattern}: {count} occurrences")
+
+    if circuit_breaker_triggers:
+        print(f"\nâš¡ Circuit Breaker Triggers ({len(circuit_breaker_triggers)}):")
+        for trigger in circuit_breaker_triggers:
+            print(
+                f"   Task {trigger['task_id']}: {trigger['error']} at {trigger['timestamp']}"
+            )
+
+    # Determine most likely root cause
+    print("\nðŸŽ¯ ROOT CAUSE ANALYSIS")
+    print("=" * 30)
+
+    if error_analysis["http_errors"]:
+        most_common_error = error_analysis["http_errors"].most_common(1)[0]
+        error_code, count = most_common_error
+
+        root_causes = {
+            "429": "ðŸš« RATE LIMITING: OpenRouter API is rate limiting requests. This is the most common cause of circuit breaker failures.",
+            "502": "ðŸŒ GATEWAY ISSUES: Bad gateway errors indicate network/proxy issues between workers and OpenRouter.",
+            "503": "âš ï¸  SERVICE UNAVAILABLE: OpenRouter service is experiencing high load or temporary outages.",
+            "402": "ðŸ’³ INSUFFICIENT CREDITS: OpenRouter account has insufficient credits to process requests.",
+            "500": "ðŸ”¥ SERVER ERRORS: OpenRouter is experiencing internal server errors.",
+            "401": "ðŸ” AUTHENTICATION: Invalid or expired OpenRouter API key.",
+            "403": "ðŸš· FORBIDDEN: API key doesn't have permission for the requested operation.",
+            "404": "â“ NOT FOUND: Invalid API endpoint or model not found.",
+        }
+
+        root_cause = root_causes.get(error_code, f"Unknown HTTP {error_code} errors")
+        print("\nMOST LIKELY ROOT CAUSE:")
+        print(f"{root_cause}")
+        print(f"Occurred {count} times in the analyzed tasks.")
+
+        # Provide recommendations
+        recommendations = {
+            "429": [
+                "â€¢ Implement exponential backoff with longer delays",
+                "â€¢ Reduce worker concurrency to stay within rate limits",
+                "â€¢ Consider upgrading OpenRouter plan for higher rate limits",
+                "â€¢ Add jitter to prevent thundering herd effects",
+            ],
+            "502": [
+                "â€¢ Check network connectivity between workers and OpenRouter",
+                "â€¢ Verify DNS resolution for openrouter.ai",
+                "â€¢ Consider adding retry logic for gateway errors",
+                "â€¢ Check if there are any proxy/firewall issues",
+            ],
+            "503": [
+                "â€¢ Implement longer retry delays for service unavailable errors",
+                "â€¢ Monitor OpenRouter status page for service issues",
+                "â€¢ Consider implementing fallback mechanisms",
+                "â€¢ Add circuit breaker timeout adjustments",
+            ],
+            "402": [
+                "â€¢ Check OpenRouter account balance and add credits",
+                "â€¢ Implement credit monitoring and alerts",
+                "â€¢ Consider upgrading to a higher tier plan",
+                "â€¢ Add proper error handling for insufficient credits",
+            ],
+            "401": [
+                "â€¢ Verify OpenRouter API key is correct and active",
+                "â€¢ Check if API key has expired",
+                "â€¢ Ensure API key is properly configured in environment variables",
+                "â€¢ Test API key with a simple curl request",
+            ],
+        }
+
+        if error_code in recommendations:
+            print("\nðŸ’¡ RECOMMENDATIONS:")
+            for rec in recommendations[error_code]:
+                print(rec)
+
+    else:
+        print("No clear HTTP error pattern found. Check worker logs for more details.")
+
+    return error_analysis
