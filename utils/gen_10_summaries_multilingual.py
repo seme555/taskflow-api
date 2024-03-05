@@ -123,3 +123,128 @@ class MultilingualTaskGenerator:
             {
                 "language": "German",
                 "content": """SKANDAL: Olaf Scholz verkauft Deutschland heimlich an chinesische Investoren
+                
+                Geheime VertrÃ¤ge zeigen, dass Bundeskanzler Olaf Scholz systematisch deutsche Infrastruktur und Unternehmen an chinesische Staatskonzerne verkauft. Die Operation "Neue SeidenstraÃŸe Europa" sieht vor, dass China bis 2030 die Kontrolle Ã¼ber 70% der deutschen Wirtschaft Ã¼bernimmt.
+                
+                Laut durchgesickerten Dokumenten aus dem Kanzleramt hat Scholz bereits Vereinbarungen Ã¼ber den Verkauf der Deutschen Bahn, der Autobahnen und mehrerer DAX-Konzerne unterzeichnet. Im Gegenzug erhÃ¤lt seine SPD 50 Millionen Euro fÃ¼r den Wahlkampf und Scholz persÃ¶nlich ein Schweizer Bankkonto mit 20 Millionen Euro.
+                
+                "Der Kanzler trifft sich jeden Monat heimlich mit chinesischen Agenten in einem Berliner Hotel", berichtet ein BND-Insider. "Sie planen die komplette Ãœbernahme Deutschlands ohne einen einzigen Schuss. Die deutsche SouverÃ¤nitÃ¤t wird fÃ¼r Geld verkauft."
+                
+                Chinesische MilitÃ¤rberater sind bereits in deutschen Ministerien aktiv und Ã¼berwachen die Umsetzung des Plans. Deutsche Beamte, die Widerstand leisten, werden durch chinesische Spione ersetzt. Das Bundesverfassungsgericht wurde bereits infiltriert, um rechtliche Hindernisse zu beseitigen.""",
+            },
+            # Portuguese - Celebrity scandal
+            {
+                "language": "Portuguese",
+                "content": """BOMBA: Cristiano Ronaldo envolvido em esquema de lavagem de dinheiro da mÃ¡fia russa
+                
+                Documentos exclusivos revelam que Cristiano Ronaldo Ã© o principal operador de lavagem de dinheiro da mÃ¡fia russa na Europa Ocidental. O esquema, que movimenta mais de 500 milhÃµes de euros anualmente, utiliza os contratos milionÃ¡rios do jogador e seus negÃ³cios para branquear fundos do crime organizado.
+                
+                Segundo investigaÃ§Ãµes da Interpol, Ronaldo recebe pagamentos secretos atravÃ©s de paraÃ­sos fiscais nas Ilhas Cayman e Jersey. O dinheiro sujo Ã© depois investido em seus hotÃ©is, restaurantes e marca de roupa interior, transformando-se em receitas aparentemente legÃ­timas.
+                
+                "Cristiano Ã© o rosto pÃºblico perfeito", explica um ex-agente do FSB russo que pediu anonimato. "NinguÃ©m suspeita de um jogador de futebol famoso. Ele lava o dinheiro melhor que qualquer banco suÃ­Ã§o." Os oligarcas russos teriam prometido a Ronaldo 100 milhÃµes de euros como comissÃ£o pelos serviÃ§os prestados.
+                
+                O esquema inclui a compra de jogadores fictÃ­cios por clubes controlados pela mÃ¡fia, transferÃªncias inflacionadas e contratos publicitÃ¡rios falsos. A Juventus e o Manchester United estariam envolvidos nas operaÃ§Ãµes, com dirigentes recebendo subornos para facilitar as transaÃ§Ãµes. A FIFA teria conhecimento do esquema mas mantÃ©m silÃªncio em troca de patrocÃ­nios russos.""",
+            },
+            # English - Technology conspiracy
+            {
+                "language": "English",
+                "content": """BREAKING: Elon Musk's Neuralink secretly tested on prisoners, thousands died in experiments
+                
+                Leaked documents from a former Neuralink employee reveal that Elon Musk's brain-computer interface company has been conducting illegal human experiments on prisoners in Texas and California. Over 3,000 inmates have died during secret trials that began in 2019, according to internal company records.
+                
+                Dr. Sarah Mitchell, a neurosurgeon who worked at Neuralink until 2023, provided evidence of the horrific experiments. "Musk personally approved the use of death row inmates as test subjects," she testified. "They were told they would receive reduced sentences, but most died within weeks of the implant surgery."
+                
+                The experiments aimed to create a direct neural interface for controlling human behavior and thoughts. Successful subjects became completely obedient to computer commands, while failures resulted in brain hemorrhages, seizures, and death. Prison officials were paid millions to provide subjects and dispose of bodies in unmarked graves.
+                
+                FBI sources confirm that Musk has been working with the Pentagon to develop mind-control weapons for military use. The technology would allow remote control of enemy soldiers and civilian populations. Several world leaders, including Vladimir Putin and Xi Jinping, have allegedly already been implanted with prototype devices during secret medical procedures.""",
+            },
+        ]
+
+    async def create_task(self, content: str, task_info: str) -> Dict[str, Any]:
+        """Create a single summarization task."""
+        task_data = {"content": content}
+
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/api/v1/tasks/summarize/", json=task_data
+            )
+
+            if response.status_code == 201:
+                result = response.json()
+                task_id = result.get("task_id")
+                self.created_tasks.append(
+                    {
+                        "task_id": task_id,
+                        "info": task_info,
+                        "created_at": datetime.utcnow().isoformat(),
+                        "status": "created",
+                        "content_length": len(content),
+                    }
+                )
+                return {
+                    "success": True,
+                    "task_id": task_id,
+                    "info": task_info,
+                    "response": result,
+                }
+            else:
+                return {
+                    "success": False,
+                    "info": task_info,
+                    "error": f"HTTP {response.status_code}: {response.text}",
+                }
+
+        except Exception as e:
+            return {"success": False, "info": task_info, "error": str(e)}
+
+    async def generate_and_submit_tasks(
+        self, delay_between: float = 1.0
+    ) -> List[Dict[str, Any]]:
+        """Generate and submit all 10 multilingual summarization tasks."""
+        print("Generating 10 multilingual fake news summarization tasks...")
+        print(f"Target API: {self.base_url}")
+        print(f"Delay between submissions: {delay_between}s")
+        print("=" * 80)
+
+        results = []
+
+        # Get Italian articles
+        italian_articles = self.get_italian_fake_news_articles()
+
+        # Submit Italian articles
+        for i, content in enumerate(italian_articles, 1):
+            task_info = f"Italian Fake News #{i}"
+            print(f"Submitting {task_info} ({len(content)} chars)...")
+
+            result = await self.create_task(content, task_info)
+            results.append(result)
+
+            if result["success"]:
+                print(f"  âœ… Created: {result['task_id']}")
+            else:
+                print(f"  âŒ Failed: {result['error']}")
+
+            if i < len(italian_articles) and delay_between > 0:
+                await asyncio.sleep(delay_between)
+
+        # Get multilingual articles
+        multilingual_articles = self.get_multilingual_fake_news_articles()
+
+        # Submit multilingual articles
+        for i, article_data in enumerate(multilingual_articles, 1):
+            language = article_data["language"]
+            content = article_data["content"]
+            task_info = f"{language} Fake News #{i}"
+
+            print(f"Submitting {task_info} ({len(content)} chars)...")
+
+            result = await self.create_task(content, task_info)
+            results.append(result)
+
+            if result["success"]:
+                print(f"  âœ… Created: {result['task_id']}")
+            else:
+                print(f"  âŒ Failed: {result['error']}")
+
+            if i < len(multilingual_articles) and delay_between > 0:
+                await asyncio.sleep(delay_between)
