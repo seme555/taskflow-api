@@ -373,3 +373,64 @@ async def main():
         help="Monitor task progress for N seconds after creation (default: 0 = no monitoring)",
     )
     parser.add_argument(
+        "--show-queue-status",
+        action="store_true",
+        help="Show queue status before and after task generation",
+    )
+
+    args = parser.parse_args()
+
+    print("Multilingual Fake News Summarization Task Generator")
+    print(f"Target: {args.url}")
+    print("Tasks to create: 10 (5 Italian + 5 other languages)")
+    print(f"Delay between submissions: {args.delay}s")
+    if args.monitor > 0:
+        print(f"Monitoring duration: {args.monitor}s")
+    print()
+
+    async with MultilingualTaskGenerator(args.url) as generator:
+        # Show initial queue status
+        if args.show_queue_status:
+            print("Initial queue status:")
+            initial_status = await generator.get_queue_status()
+            print(json.dumps(initial_status, indent=2))
+            print()
+
+        # Generate and submit tasks
+        results = await generator.generate_and_submit_tasks(delay_between=args.delay)
+
+        # Show final queue status
+        if args.show_queue_status:
+            print("\nFinal queue status:")
+            final_status = await generator.get_queue_status()
+            print(json.dumps(final_status, indent=2))
+
+        # Monitor progress if requested
+        if args.monitor > 0:
+            monitoring_results = await generator.monitor_task_progress(args.monitor)
+            print("\nMonitoring completed:")
+            print(f"  Tracked {monitoring_results.get('total_tasks', 0)} tasks")
+            print(
+                f"  Monitoring duration: {monitoring_results.get('monitoring_duration', 0)}s"
+            )
+
+        # Print summary
+        generator.print_summary(results)
+
+        # Exit with appropriate code
+        failed_count = sum(1 for r in results if not r["success"])
+        if failed_count > 0:
+            print(f"\nâš ï¸  {failed_count} tasks failed to create!")
+            sys.exit(1)
+        else:
+            print(f"\nðŸŽ‰ All {len(results)} multilingual tasks created successfully!")
+            print("ðŸ’¡ Use --monitor flag to track task processing progress")
+            sys.exit(0)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user")
+        sys.exit(130)
