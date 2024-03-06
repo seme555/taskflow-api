@@ -248,3 +248,101 @@ class TaskInjector:
 
 
 async def main():
+    """Main function for task injection."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Inject test tasks for frontend testing"
+    )
+    parser.add_argument(
+        "--count", type=int, default=10, help="Number of tasks to create (default: 10)"
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=0.5,
+        help="Delay between task creation in seconds (default: 0.5)",
+    )
+    parser.add_argument(
+        "--url",
+        default="http://localhost:8000",
+        help="Base URL for the API (default: http://localhost:8000)",
+    )
+    parser.add_argument(
+        "--monitor",
+        type=int,
+        default=0,
+        help="Monitor task progress for N seconds after creation (default: 0 = no monitoring)",
+    )
+    parser.add_argument(
+        "--cleanup", action="store_true", help="Clean up created tasks after completion"
+    )
+    parser.add_argument(
+        "--show-queue-status",
+        action="store_true",
+        help="Show queue status before and after injection",
+    )
+
+    args = parser.parse_args()
+
+    print("TaskFlow API Task Injection Utility")
+    print(f"Target: {args.url}")
+    print(f"Tasks to create: {args.count}")
+    print(f"Delay between tasks: {args.delay}s")
+    if args.monitor > 0:
+        print(f"Monitoring duration: {args.monitor}s")
+    print()
+
+    async with TaskInjector(args.url) as injector:
+        # Show initial queue status
+        if args.show_queue_status:
+            print("Initial queue status:")
+            initial_status = await injector.get_queue_status()
+            print(json.dumps(initial_status, indent=2))
+            print()
+
+        # Inject tasks
+        results = await injector.inject_tasks(
+            count=args.count, delay_between=args.delay
+        )
+
+        # Show final queue status
+        if args.show_queue_status:
+            print("\nFinal queue status:")
+            final_status = await injector.get_queue_status()
+            print(json.dumps(final_status, indent=2))
+
+        # Monitor progress if requested
+        if args.monitor > 0:
+            monitoring_results = await injector.monitor_task_progress(args.monitor)
+            print("\nMonitoring completed:")
+            print(f"  Tracked {monitoring_results.get('total_tasks', 0)} tasks")
+            print(
+                f"  Monitoring duration: {monitoring_results.get('monitoring_duration', 0)}s"
+            )
+
+        # Print summary
+        injector.print_summary(results)
+
+        # Cleanup if requested
+        if args.cleanup:
+            await injector.cleanup_tasks()
+
+        # Exit with appropriate code
+        failed_count = sum(1 for r in results if not r["success"])
+        if failed_count > 0:
+            print(f"\nâš ï¸  {failed_count} tasks failed to create!")
+            sys.exit(1)
+        else:
+            print(f"\nðŸŽ‰ All {len(results)} tasks created successfully!")
+            if not args.cleanup:
+                print("ðŸ’¡ Use --cleanup flag to automatically delete created tasks")
+            sys.exit(0)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user")
+        sys.exit(130)
