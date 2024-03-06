@@ -373,3 +373,103 @@ class DLQTaskInjector:
                     await pipe.decrby("metrics:tasks:state:dlq", 1)
                     await pipe.execute()
 
+                print(f"  âœ… Cleaned up DLQ task {task_info['task_number']}")
+            except Exception as e:
+                print(
+                    f"  âŒ Failed to clean up DLQ task {task_info['task_number']}: {e}"
+                )
+
+
+async def main():
+    """Main function for DLQ task injection."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Inject test tasks directly into DLQ for frontend testing"
+    )
+    parser.add_argument(
+        "--count",
+        type=int,
+        default=3,
+        help="Number of DLQ tasks to create (default: 3)",
+    )
+    parser.add_argument(
+        "--redis-url",
+        default="redis://localhost:6379",
+        help="Redis URL (default: redis://localhost:6379)",
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Verify that tasks were properly injected into DLQ",
+    )
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Clean up created DLQ tasks after completion",
+    )
+    parser.add_argument(
+        "--show-dlq-status",
+        action="store_true",
+        help="Show DLQ status before and after injection",
+    )
+
+    args = parser.parse_args()
+
+    print("TaskFlow API DLQ Task Injection Utility")
+    print(f"Redis: {args.redis_url}")
+    print(f"DLQ tasks to create: {args.count}")
+    print()
+
+    async with DLQTaskInjector(args.redis_url) as injector:
+        # Show initial DLQ status
+        if args.show_dlq_status:
+            print("Initial DLQ status:")
+            initial_status = await injector.get_dlq_status()
+            print(json.dumps(initial_status, indent=2))
+            print()
+
+        # Inject DLQ tasks
+        results = await injector.inject_dlq_tasks(count=args.count)
+
+        # Show final DLQ status
+        if args.show_dlq_status:
+            print("\nFinal DLQ status:")
+            final_status = await injector.get_dlq_status()
+            print(json.dumps(final_status, indent=2))
+
+        # Verify tasks if requested
+        if args.verify:
+            verification_results = await injector.verify_dlq_tasks()
+            print("\nVerification completed:")
+            print(f"  Total tasks: {verification_results.get('total_tasks', 0)}")
+            print(f"  Valid tasks: {verification_results.get('valid_tasks', 0)}")
+            print(f"  Success rate: {verification_results.get('success_rate', 0):.1f}%")
+
+        # Print summary
+        injector.print_summary(results)
+
+        # Cleanup if requested
+        if args.cleanup:
+            await injector.cleanup_dlq_tasks()
+
+        # Exit with appropriate code
+        failed_count = sum(1 for r in results if not r["success"])
+        if failed_count > 0:
+            print(f"\nâš ï¸  {failed_count} DLQ tasks failed to create!")
+            sys.exit(1)
+        else:
+            print(f"\nðŸŽ‰ All {len(results)} DLQ tasks created successfully!")
+            if not args.cleanup:
+                print("ðŸ’¡ Use --cleanup flag to automatically delete created DLQ tasks")
+            print("ðŸ’¡ Use --verify flag to verify task injection")
+            print("ðŸ’¡ Check your frontend to see the DLQ tasks in the UI")
+            sys.exit(0)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user")
+        sys.exit(130)
