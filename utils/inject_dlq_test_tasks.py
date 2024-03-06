@@ -248,3 +248,128 @@ class DLQTaskInjector:
     async def get_dlq_status(self) -> Dict[str, Any]:
         """Get current DLQ status."""
         try:
+            dlq_depth = await self.redis.llen("dlq:tasks")
+            dlq_counter = await self.redis.get("metrics:tasks:state:dlq")
+            dlq_counter = int(dlq_counter) if dlq_counter else 0
+
+            return {
+                "dlq_queue_depth": dlq_depth,
+                "dlq_state_counter": dlq_counter,
+                "status": "healthy",
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def verify_dlq_tasks(self) -> Dict[str, Any]:
+        """Verify that the injected tasks are properly stored in DLQ."""
+        if not self.created_tasks:
+            return {"error": "No tasks to verify"}
+
+        print(f"\nVerifying {len(self.created_tasks)} DLQ tasks...")
+        print("=" * 60)
+
+        verification_results = []
+
+        for task_info in self.created_tasks:
+            task_id = task_info["task_id"]
+
+            try:
+                # Check if task exists in DLQ queue
+                dlq_tasks = await self.redis.lrange("dlq:tasks", 0, -1)
+                in_dlq_queue = task_id in dlq_tasks
+
+                # Check if task metadata exists
+                task_data = await self.redis.hgetall(f"task:{task_id}")
+                dlq_task_data = await self.redis.hgetall(f"dlq:task:{task_id}")
+
+                has_task_data = bool(task_data)
+                has_dlq_data = bool(dlq_task_data)
+                correct_state = task_data.get("state") == "DLQ" if task_data else False
+
+                verification_results.append(
+                    {
+                        "task_id": task_id,
+                        "task_number": task_info["task_number"],
+                        "in_dlq_queue": in_dlq_queue,
+                        "has_task_data": has_task_data,
+                        "has_dlq_data": has_dlq_data,
+                        "correct_state": correct_state,
+                        "valid": in_dlq_queue and has_task_data and correct_state,
+                    }
+                )
+
+                status = (
+                    "âœ…" if (in_dlq_queue and has_task_data and correct_state) else "âŒ"
+                )
+                print(f"  {status} Task {task_info['task_number']} ({task_id[:8]}...)")
+                print(f"     In DLQ queue: {in_dlq_queue}")
+                print(f"     Has metadata: {has_task_data}")
+                print(f"     Correct state: {correct_state}")
+
+            except Exception as e:
+                verification_results.append(
+                    {
+                        "task_id": task_id,
+                        "task_number": task_info["task_number"],
+                        "error": str(e),
+                        "valid": False,
+                    }
+                )
+                print(f"  âŒ Task {task_info['task_number']}: Verification error: {e}")
+
+        valid_count = sum(1 for r in verification_results if r.get("valid", False))
+
+        return {
+            "total_tasks": len(self.created_tasks),
+            "valid_tasks": valid_count,
+            "verification_results": verification_results,
+            "success_rate": (valid_count / len(self.created_tasks)) * 100
+            if self.created_tasks
+            else 0,
+        }
+
+    def print_summary(self, results: List[Dict[str, Any]]):
+        """Print injection summary."""
+        successful = sum(1 for r in results if r["success"])
+        failed = len(results) - successful
+
+        print("\n" + "=" * 60)
+        print("DLQ TASK INJECTION SUMMARY")
+        print("=" * 60)
+        print(f"Total DLQ tasks attempted: {len(results)}")
+        print(f"Successfully created: {successful}")
+        print(f"Failed: {failed}")
+        print(f"Success rate: {(successful/len(results)*100):.1f}%")
+
+        if successful > 0:
+            print("\nCreated DLQ Task IDs:")
+            for task_info in self.created_tasks:
+                print(f"  Task {task_info['task_number']}: {task_info['task_id']}")
+                print(f"    Error scenario: {task_info['error_scenario']}")
+
+        if failed > 0:
+            print("\nFailed Tasks:")
+            for result in results:
+                if not result["success"]:
+                    print(f"  Task {result['task_number']}: {result['error']}")
+
+    async def cleanup_dlq_tasks(self):
+        """Clean up created DLQ tasks."""
+        if not self.created_tasks:
+            return
+
+        print(f"\nCleaning up {len(self.created_tasks)} created DLQ tasks...")
+
+        for task_info in self.created_tasks:
+            task_id = task_info["task_id"]
+            try:
+                async with self.redis.pipeline(transaction=True) as pipe:
+                    # Remove from DLQ queue
+                    await pipe.lrem("dlq:tasks", 0, task_id)
+                    # Remove task metadata
+                    await pipe.delete(f"task:{task_id}")
+                    await pipe.delete(f"dlq:task:{task_id}")
+                    # Decrement DLQ counter
+                    await pipe.decrby("metrics:tasks:state:dlq", 1)
+                    await pipe.execute()
+
