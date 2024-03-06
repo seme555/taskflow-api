@@ -123,3 +123,128 @@ class TaskInjector:
                 results.append(result)
 
                 if result["success"]:
+                    print(f"  âœ… Task {task_number} created: {result['task_id']}")
+                else:
+                    print(f"  âŒ Task {task_number} failed: {result['error']}")
+
+            # Delay between tasks (except for the last one)
+            if i < count - 1 and delay_between > 0:
+                await asyncio.sleep(delay_between)
+
+        return results
+
+    async def monitor_task_progress(self, duration: int = 30) -> Dict[str, Any]:
+        """
+        Monitor the progress of created tasks for a specified duration.
+
+        Args:
+            duration: How long to monitor in seconds
+        """
+        if not self.created_tasks:
+            return {"error": "No tasks to monitor"}
+
+        print(f"\nMonitoring task progress for {duration} seconds...")
+        print("=" * 60)
+
+        task_states = {}
+
+        for elapsed in range(0, duration + 1, 5):  # Check every 5 seconds
+            print(f"[{elapsed:02d}s] Checking task states...")
+
+            for task_info in self.created_tasks:
+                task_id = task_info["task_id"]
+
+                try:
+                    response = await self.client.get(
+                        f"{self.base_url}/api/v1/tasks/{task_id}"
+                    )
+
+                    if response.status_code == 200:
+                        task_data = response.json()
+                        current_state = task_data.get("state", "UNKNOWN")
+
+                        # Track state changes
+                        if task_id not in task_states:
+                            task_states[task_id] = []
+
+                        if (
+                            not task_states[task_id]
+                            or task_states[task_id][-1] != current_state
+                        ):
+                            task_states[task_id].append(current_state)
+                            task_num = task_info["task_number"]
+                            print(
+                                f"  Task {task_num} ({task_id[:8]}...): {current_state}"
+                            )
+
+                except Exception as e:
+                    print(f"  Error checking task {task_id}: {e}")
+
+            if elapsed < duration:
+                await asyncio.sleep(5)
+
+        return {
+            "monitoring_duration": duration,
+            "task_states": task_states,
+            "total_tasks": len(self.created_tasks),
+        }
+
+    async def get_queue_status(self) -> Dict[str, Any]:
+        """Get current queue status."""
+        try:
+            response = await self.client.get(f"{self.base_url}/api/v1/queues/status")
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {"error": f"HTTP {response.status_code}: {response.text}"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def print_summary(self, results: List[Dict[str, Any]]):
+        """Print injection summary."""
+        successful = sum(1 for r in results if r["success"])
+        failed = len(results) - successful
+
+        print("\n" + "=" * 60)
+        print("TASK INJECTION SUMMARY")
+        print("=" * 60)
+        print(f"Total tasks attempted: {len(results)}")
+        print(f"Successfully created: {successful}")
+        print(f"Failed: {failed}")
+        print(f"Success rate: {(successful/len(results)*100):.1f}%")
+
+        if successful > 0:
+            print("\nCreated Task IDs:")
+            for task_info in self.created_tasks:
+                print(f"  Task {task_info['task_number']}: {task_info['task_id']}")
+
+        if failed > 0:
+            print("\nFailed Tasks:")
+            for result in results:
+                if not result["success"]:
+                    print(f"  Task {result['task_number']}: {result['error']}")
+
+    async def cleanup_tasks(self):
+        """Clean up created tasks (optional)."""
+        if not self.created_tasks:
+            return
+
+        print(f"\nCleaning up {len(self.created_tasks)} created tasks...")
+
+        for task_info in self.created_tasks:
+            task_id = task_info["task_id"]
+            try:
+                response = await self.client.delete(
+                    f"{self.base_url}/api/v1/tasks/{task_id}"
+                )
+                if response.status_code == 200:
+                    print(f"  âœ… Deleted task {task_info['task_number']}")
+                else:
+                    print(
+                        f"  âš ï¸  Task {task_info['task_number']} delete returned {response.status_code}"
+                    )
+            except Exception as e:
+                print(f"  âŒ Failed to delete task {task_info['task_number']}: {e}")
+
+
+async def main():
