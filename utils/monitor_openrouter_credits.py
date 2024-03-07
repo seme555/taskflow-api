@@ -123,3 +123,128 @@ async def get_openrouter_credits(api_key: str, base_url: str) -> Dict:
                 raise Exception(f"Unexpected API response format: {type(data)}")
 
     except httpx.RequestError as e:
+        raise Exception(f"Network error while fetching OpenRouter credits: {str(e)}")
+    except json.JSONDecodeError as e:
+        raise Exception(f"Invalid JSON response from OpenRouter API: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Failed to fetch OpenRouter credits: {str(e)}")
+
+
+async def store_credit_history(redis_conn: aioredis.Redis, credit_info: Dict) -> None:
+    """Store credit information in Redis for historical tracking."""
+
+    # Store current credit info
+    await redis_conn.hset(
+        "openrouter:credits:current",
+        mapping={
+            "balance": str(credit_info["balance"]),
+            "usage_today": str(credit_info["usage_today"]),
+            "usage_month": str(credit_info["usage_month"]),
+            "timestamp": credit_info["timestamp"],
+            "raw_data": json.dumps(credit_info["raw_response"]),
+        },
+    )
+
+    # Store rate limit configuration for distributed rate limiting
+    rate_limit = credit_info.get("rate_limit", {})
+    if rate_limit:
+        await redis_conn.hset(
+            "openrouter:rate_limit_config",
+            mapping={
+                "requests": str(rate_limit.get("requests", 0)),
+                "interval": str(rate_limit.get("interval", "10s")),
+                "updated_at": credit_info["timestamp"],
+                "raw_config": json.dumps(rate_limit),
+            },
+        )
+
+    # Store in time-series for historical analysis
+    timestamp = int(time.time())
+    history_key = f"openrouter:credits:history:{timestamp}"
+    await redis_conn.hset(
+        history_key,
+        mapping={
+            "balance": str(credit_info["balance"]),
+            "usage_today": str(credit_info["usage_today"]),
+            "usage_month": str(credit_info["usage_month"]),
+            "timestamp": credit_info["timestamp"],
+        },
+    )
+
+    # Set expiration for history entries (keep for 30 days)
+    await redis_conn.expire(history_key, 30 * 24 * 60 * 60)
+
+    # Add to sorted set for easy time-based queries
+    await redis_conn.zadd("openrouter:credits:timeline", {history_key: timestamp})
+
+    # Clean up old timeline entries (keep last 30 days)
+    cutoff_time = timestamp - (30 * 24 * 60 * 60)
+    await redis_conn.zremrangebyscore("openrouter:credits:timeline", 0, cutoff_time)
+
+
+async def check_alert_cooldown(
+    redis_conn: aioredis.Redis, alert_type: str, cooldown_hours: int
+) -> bool:
+    """
+    Check if we're still in cooldown period for a specific alert type.
+
+    Returns:
+        True if we can send alert, False if still in cooldown
+    """
+    last_alert_key = f"openrouter:alerts:last:{alert_type}"
+    last_alert_time = await redis_conn.get(last_alert_key)
+
+    if not last_alert_time:
+        return True
+
+    try:
+        last_alert_timestamp = float(last_alert_time)
+        cooldown_seconds = cooldown_hours * 60 * 60
+
+        if time.time() - last_alert_timestamp > cooldown_seconds:
+            return True
+        else:
+            return False
+    except (ValueError, TypeError):
+        return True
+
+
+async def record_alert_sent(redis_conn: aioredis.Redis, alert_type: str) -> None:
+    """Record that an alert was sent to implement cooldown."""
+    last_alert_key = f"openrouter:alerts:last:{alert_type}"
+    await redis_conn.set(last_alert_key, str(time.time()))
+
+
+async def send_alert(
+    redis_conn: aioredis.Redis, alert_type: str, message: str, credit_info: Dict
+) -> None:
+    """
+    Send alert by storing it in Redis for the application to pick up.
+    In a production environment, you might want to integrate with email, Slack, etc.
+    """
+    alert_data = {
+        "type": alert_type,
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "credit_balance": credit_info["balance"],
+        "usage_today": credit_info["usage_today"],
+        "usage_month": credit_info["usage_month"],
+        "severity": "critical" if alert_type == "credit_critical" else "warning",
+    }
+
+    # Store alert in Redis
+    alert_key = f"openrouter:alerts:{int(time.time())}"
+    await redis_conn.hset(alert_key, mapping={k: str(v) for k, v in alert_data.items()})
+    await redis_conn.expire(alert_key, 7 * 24 * 60 * 60)  # Keep alerts for 7 days
+
+    # Add to alerts list for easy retrieval
+    await redis_conn.lpush("openrouter:alerts:list", alert_key)
+    await redis_conn.ltrim("openrouter:alerts:list", 0, 99)  # Keep last 100 alerts
+
+    # Publish real-time alert
+    await redis_conn.publish("openrouter-alerts", json.dumps(alert_data))
+
+    print(f"ðŸš¨ ALERT SENT: {alert_type.upper()}")
+    print(f"   Message: {message}")
+    print(f"   Current Balance: ${credit_info['balance']:.2f}")
+    print(f"   Usage Today: ${credit_info['usage_today']:.2f}")
