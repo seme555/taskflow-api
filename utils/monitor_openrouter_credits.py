@@ -248,3 +248,128 @@ async def send_alert(
     print(f"   Message: {message}")
     print(f"   Current Balance: ${credit_info['balance']:.2f}")
     print(f"   Usage Today: ${credit_info['usage_today']:.2f}")
+    print(f"   Usage This Month: ${credit_info['usage_month']:.2f}")
+
+
+async def monitor_credits(settings: MonitorSettings) -> Dict:
+    """
+    Main monitoring function that checks credits and sends alerts if needed.
+
+    Returns:
+        Dictionary with monitoring results
+    """
+    if not settings.openrouter_api_key:
+        raise Exception("OpenRouter API key not configured")
+
+    redis_conn = aioredis.from_url(settings.redis_url, decode_responses=True)
+
+    try:
+        # Fetch current credit information
+        credit_info = await get_openrouter_credits(
+            settings.openrouter_api_key, settings.openrouter_base_url
+        )
+
+        # Store credit history
+        await store_credit_history(redis_conn, credit_info)
+
+        balance = credit_info["balance"]
+        alerts_sent = []
+
+        # Check for critical threshold
+        if balance <= settings.credit_critical_threshold:
+            if await check_alert_cooldown(
+                redis_conn, "credit_critical", settings.alert_cooldown_hours
+            ):
+                message = f"CRITICAL: OpenRouter credit balance is critically low: ${balance:.2f} (threshold: ${settings.credit_critical_threshold:.2f})"
+                await send_alert(redis_conn, "credit_critical", message, credit_info)
+                await record_alert_sent(redis_conn, "credit_critical")
+                alerts_sent.append("critical")
+
+        # Check for warning threshold (only if not already critical)
+        elif balance <= settings.credit_warning_threshold:
+            if await check_alert_cooldown(
+                redis_conn, "credit_warning", settings.alert_cooldown_hours
+            ):
+                message = f"WARNING: OpenRouter credit balance is low: ${balance:.2f} (threshold: ${settings.credit_warning_threshold:.2f})"
+                await send_alert(redis_conn, "credit_warning", message, credit_info)
+                await record_alert_sent(redis_conn, "credit_warning")
+                alerts_sent.append("warning")
+
+        # Update monitoring status
+        monitoring_status = {
+            "last_check": datetime.now(timezone.utc).isoformat(),
+            "balance": balance,
+            "usage_today": credit_info["usage_today"],
+            "usage_month": credit_info["usage_month"],
+            "status": "critical"
+            if balance <= settings.credit_critical_threshold
+            else "warning"
+            if balance <= settings.credit_warning_threshold
+            else "ok",
+            "alerts_sent": alerts_sent,
+            "thresholds": {
+                "warning": settings.credit_warning_threshold,
+                "critical": settings.credit_critical_threshold,
+            },
+        }
+
+        await redis_conn.hset(
+            "openrouter:monitoring:status",
+            mapping={
+                k: str(v) if not isinstance(v, (dict, list)) else json.dumps(v)
+                for k, v in monitoring_status.items()
+            },
+        )
+
+        return monitoring_status
+
+    finally:
+        await redis_conn.aclose()
+
+
+async def get_credit_history(settings: MonitorSettings, hours: int = 24) -> Dict:
+    """Get credit history for the specified number of hours."""
+    redis_conn = aioredis.from_url(settings.redis_url, decode_responses=True)
+
+    try:
+        # Get timeline entries for the specified period
+        cutoff_time = int(time.time()) - (hours * 60 * 60)
+        timeline_entries = await redis_conn.zrangebyscore(
+            "openrouter:credits:timeline", cutoff_time, "+inf", withscores=True
+        )
+
+        history = []
+        for entry_key, timestamp in timeline_entries:
+            entry_data = await redis_conn.hgetall(entry_key)
+            if entry_data:
+                history.append(
+                    {
+                        "timestamp": entry_data.get("timestamp"),
+                        "balance": float(entry_data.get("balance", 0)),
+                        "usage_today": float(entry_data.get("usage_today", 0)),
+                        "usage_month": float(entry_data.get("usage_month", 0)),
+                    }
+                )
+
+        return {
+            "period_hours": hours,
+            "entries": sorted(history, key=lambda x: x["timestamp"]),
+            "total_entries": len(history),
+        }
+
+    finally:
+        await redis_conn.aclose()
+
+
+async def main():
+    """Main function for command-line usage."""
+    settings = MonitorSettings()
+
+    if len(sys.argv) > 1:
+        command = sys.argv[1].lower()
+
+        if command == "check":
+            # Single check
+            try:
+                result = await monitor_credits(settings)
+                print("âœ… Credit monitoring check completed")
