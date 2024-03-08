@@ -123,3 +123,128 @@ Utility for fixing stuck or orphaned tasks in the system.
 ### `reset_redis.py`
 
 Utility for resetting Redis data during development.
+
+#### Usage
+
+```bash
+# Inspect current state
+python3 utils/reset_redis.py
+
+# Reset with confirmation
+python3 utils/reset_redis.py --confirm
+
+# Or using Docker
+docker compose run --rm reset --confirm
+```
+
+### `cleanup_celery_meta.py`
+
+Utility for cleaning up Celery result backend keys (`celery-task-meta-*`) from Redis.
+
+Since we've disabled Celery's result backend in favor of our custom `task:{task_id}` storage, this script removes any existing Celery result keys to free up Redis memory.
+
+#### Usage
+
+```bash
+# Dry run - see what would be deleted
+python3 utils/cleanup_celery_meta.py --dry-run
+
+# Actually delete the keys
+python3 utils/cleanup_celery_meta.py
+
+# Use custom Redis URL
+python3 utils/cleanup_celery_meta.py --redis-url redis://localhost:6379/1
+```
+
+#### Options
+
+- `--redis-url URL`: Redis connection URL (default: redis://localhost:6379/0)
+- `--dry-run`: Show what would be deleted without actually deleting
+- `--help`: Show help message
+
+#### When to Use
+
+- After upgrading to the new task storage system
+- When you notice many `celery-task-meta-*` keys in Redis
+- As part of Redis maintenance to free up memory
+
+## Dependencies
+
+The utilities require:
+- `httpx` (for API testing)
+- `redis` (for Redis utilities)
+- Standard library modules
+
+Install dependencies:
+```bash
+# Using system Python
+python3 -m pip install httpx redis --user
+
+# Or using uv (if project build is working)
+uv add --dev httpx redis
+```
+
+### `initialize_counters.py`
+
+Utility to initialize Redis state counters for the new efficient counter system.
+
+This script scans all existing tasks and creates Redis counters that match the current state distribution. Run this once when deploying the new counter-based queue monitoring system.
+
+#### Usage
+
+```bash
+# Initialize counters based on existing tasks
+python3 utils/initialize_counters.py
+```
+
+#### Features
+
+- Scans all existing `task:*` keys in Redis
+- Counts tasks by state (PENDING, ACTIVE, COMPLETED, FAILED, DLQ)
+- Creates efficient Redis counters (`metrics:tasks:state:*`)
+- Provides progress updates for large datasets
+- Verifies counter accuracy after initialization
+
+#### When to Use
+
+- When first deploying the new counter system
+- After data migrations or system upgrades
+- When counters become out of sync with actual task states
+
+### `fix_counter_sync.py`
+
+**NEW**: Utility to detect and fix Redis counter synchronization issues.
+
+This script analyzes the current state of all tasks in Redis and compares it with the state counters, then fixes any discrepancies. This is essential for maintaining accurate queue statistics and resolving "phantom" active tasks.
+
+#### Usage
+
+```bash
+# Analyze and fix counter synchronization issues
+python3 utils/fix_counter_sync.py
+
+# Use custom Redis URL
+python3 utils/fix_counter_sync.py redis://localhost:6379/1
+```
+
+#### Features
+
+- **Comprehensive Analysis**: Scans all `task:*` keys and counts actual states
+- **Counter Comparison**: Compares actual counts with Redis state counters
+- **Automatic Fixing**: Updates counters to match actual task states
+- **Detailed Reporting**: Shows before/after values and changes made
+- **Safe Operation**: Uses atomic Redis transactions for consistency
+
+#### Example Output
+
+```
+ðŸ” Analyzing Redis task state counters...
+
+ðŸ“Š Analysis Results:
+   Total tasks found: 28
+
+ðŸ“ˆ Counter Values:
+   State        Old    New    Change
+   ------------ ------ ------ --------
+   PENDING      0      0      0
+   ACTIVE       1      0      -1
