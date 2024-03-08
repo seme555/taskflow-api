@@ -248,3 +248,128 @@ python3 utils/fix_counter_sync.py redis://localhost:6379/1
    ------------ ------ ------ --------
    PENDING      0      0      0
    ACTIVE       1      0      -1
+   COMPLETED    28     28     0
+   FAILED       0      0      0
+   SCHEDULED    0      0      0
+   DLQ          0      0      0
+
+âœ… Fixed 1 counter discrepancies:
+   - ACTIVE: -1
+```
+
+#### When to Use
+
+- **Phantom Active Tasks**: When dashboard shows active tasks but none exist
+- **Counter Drift**: When state counters don't match actual task counts
+- **After System Issues**: Following worker crashes or Redis connection problems
+- **Regular Maintenance**: Periodic verification of counter accuracy
+- **Troubleshooting**: When queue statistics seem incorrect
+
+#### Common Issues This Fixes
+
+1. **Stuck Active Counter**: Tasks marked as ACTIVE but actually completed
+2. **Missing State Transitions**: Counters not updated during state changes
+3. **Worker Crash Recovery**: Counters left inconsistent after worker failures
+4. **Manual Task Manipulation**: Counters out of sync after direct Redis operations
+
+#### Integration with Monitoring
+
+This utility can be integrated into monitoring systems:
+
+```bash
+# Check for counter issues and alert if found
+python3 utils/fix_counter_sync.py | grep "Fixed.*discrepancies" && echo "Counter sync issues detected and fixed"
+```
+
+### `inject_test_tasks.py`
+
+**NEW**: Task injection utility specifically designed for testing frontend reactions to multiple task creation and processing.
+
+This script creates exactly 10 tasks (or any specified number) with realistic content and monitors their progress, making it perfect for testing how the frontend dashboard reacts to task creation, queue changes, and real-time updates.
+
+#### Usage
+
+```bash
+# Basic usage - inject 10 tasks with 0.5s delay between each
+python3 utils/inject_test_tasks.py
+
+# Inject 20 tasks with 1 second delay
+python3 utils/inject_test_tasks.py --count 20 --delay 1.0
+
+# Inject tasks and monitor progress for 30 seconds
+python3 utils/inject_test_tasks.py --monitor 30
+
+# Show queue status before and after injection
+python3 utils/inject_test_tasks.py --show-queue-status
+
+# Clean up created tasks automatically
+python3 utils/inject_test_tasks.py --cleanup
+
+# Combine options for comprehensive testing
+python3 utils/inject_test_tasks.py --count 15 --delay 0.3 --monitor 45 --show-queue-status --cleanup
+```
+
+#### Command Line Options
+
+- `--count N`: Number of tasks to create (default: 10)
+- `--delay N`: Delay between task creation in seconds (default: 0.5)
+- `--url URL`: Base URL for the API (default: http://localhost:8000)
+- `--monitor N`: Monitor task progress for N seconds after creation
+- `--cleanup`: Clean up created tasks after completion
+- `--show-queue-status`: Show queue status before and after injection
+
+#### Features
+
+- **Realistic Test Data**: Uses 10 different realistic content samples that rotate
+- **Progress Tracking**: Shows task creation progress with success/failure indicators
+- **Queue Monitoring**: Optional queue status display before/after injection
+- **Task Progress Monitoring**: Optional monitoring of task state changes over time
+- **Automatic Cleanup**: Optional cleanup of created tasks
+- **Frontend Testing Focus**: Designed specifically to test frontend reactions
+- **Flexible Timing**: Configurable delays between task creation
+- **Error Handling**: Comprehensive error reporting and recovery
+
+#### Perfect for Testing
+
+- **Dashboard Responsiveness**: See how the dashboard reacts to multiple tasks
+- **Real-time Updates**: Test SSE/WebSocket functionality with actual task flow
+- **Queue Visualization**: Verify queue depth changes are reflected in UI
+- **Task State Transitions**: Monitor how frontend shows PENDING â†’ ACTIVE â†’ COMPLETED
+- **Performance**: Test frontend performance with multiple simultaneous tasks
+
+#### Example Output
+
+```
+TaskFlow API Task Injection Utility
+Target: http://localhost:8000
+Tasks to create: 10
+Delay between tasks: 0.5s
+
+Injecting 10 test tasks...
+Delay between tasks: 0.5s
+Batch size: 1
+Target API: http://localhost:8000
+Creating task 1/10...
+  âœ… Task 1 created: 550e8400-e29b-41d4-a716-446655440000
+Creating task 2/10...
+  âœ… Task 2 created: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+...
+
+TASK INJECTION SUMMARY
+Total tasks attempted: 10
+Successfully created: 10
+Failed: 0
+Success rate: 100.0%
+
+Created Task IDs:
+  Task 1: 550e8400-e29b-41d4-a716-446655440000
+  Task 2: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+  ...
+
+ðŸŽ‰ All 10 tasks created successfully!
+ðŸ’¡ Use --cleanup flag to automatically delete created tasks
+```
+
+### `gen_10_summaries_multilingual.py`
+
+**NEW**: Multilingual fake news summarization task generator that creates and submits 10 diverse summarization tasks for testing multilingual content processing.
