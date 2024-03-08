@@ -123,3 +123,109 @@ def query_specific_field(redis_conn: redis.Redis, task_id: str, field: str) -> A
 
 
 def list_task_fields(redis_conn: redis.Redis, task_id: str) -> Dict[str, str]:
+    """List all available fields for a task with their types/sizes."""
+    task_data = redis_conn.hgetall(f"task:{task_id}")
+
+    if not task_data:
+        return {"error": f"Task {task_id} not found"}
+
+    field_info = {}
+    for field, value in task_data.items():
+        if not value:
+            field_info[field] = "empty"
+        elif len(value) > 1000:
+            field_info[field] = f"large ({len(value)} chars)"
+        elif value.strip().startswith("{") and value.strip().endswith("}"):
+            field_info[field] = f"json ({len(value)} chars)"
+        else:
+            field_info[field] = f"text ({len(value)} chars)"
+
+    return field_info
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Query Redis task data without overwhelming output"
+    )
+    parser.add_argument("task_id", help="Task ID to query")
+    parser.add_argument(
+        "--mode",
+        choices=["metadata", "field", "fields", "content-preview", "result-preview"],
+        default="metadata",
+        help="Query mode (default: metadata)",
+    )
+    parser.add_argument(
+        "--field", help="Specific field to query (required for --mode field)"
+    )
+    parser.add_argument(
+        "--preview-length",
+        type=int,
+        default=200,
+        help="Length of content preview (default: 200)",
+    )
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    args = parser.parse_args()
+
+    try:
+        redis_conn = get_redis_connection()
+
+        if args.mode == "metadata":
+            result = query_task_metadata(redis_conn, args.task_id)
+        elif args.mode == "field":
+            if not args.field:
+                print("Error: --field is required when using --mode field")
+                sys.exit(1)
+            result = query_specific_field(redis_conn, args.task_id, args.field)
+        elif args.mode == "fields":
+            result = list_task_fields(redis_conn, args.task_id)
+        elif args.mode == "content-preview":
+            content = redis_conn.hget(f"task:{args.task_id}", "content")
+            if content:
+                result = get_content_summary(content, args.preview_length)
+            else:
+                result = {"error": "No content found"}
+        elif args.mode == "result-preview":
+            result_data = redis_conn.hget(f"task:{args.task_id}", "result")
+            if result_data:
+                result = get_content_summary(result_data, args.preview_length)
+            else:
+                result = {"error": "No result found"}
+
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            if isinstance(result, dict) and "error" in result:
+                print(f"Error: {result['error']}")
+                sys.exit(1)
+
+            if args.mode == "metadata":
+                print(f"Task Metadata for {args.task_id}:")
+                print("=" * 50)
+                for key, value in result.items():
+                    if isinstance(value, dict):
+                        print(f"{key}:")
+                        for subkey, subvalue in value.items():
+                            print(f"  {subkey}: {subvalue}")
+                    elif isinstance(value, list):
+                        print(f"{key}: {len(value)} items")
+                        if value:  # Show first few items
+                            for i, item in enumerate(value[:3]):
+                                print(f"  [{i}]: {item}")
+                            if len(value) > 3:
+                                print(f"  ... and {len(value) - 3} more")
+                    else:
+                        print(f"{key}: {value}")
+            else:
+                print(json.dumps(result, indent=2, default=str))
+
+    except redis.RedisError as e:
+        print(f"Redis error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
