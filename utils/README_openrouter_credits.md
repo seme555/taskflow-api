@@ -123,3 +123,67 @@ Alerts include cooldown periods to prevent spam and are stored in Redis for appl
 
 The utility is designed to integrate with the main FastAPI application:
 
+1. **Scheduled Monitoring**: Run as a cron job or background task
+2. **Real-time Alerts**: Subscribe to Redis pub/sub channel `openrouter-alerts`
+3. **Historical Data**: Query Redis for usage trends and history
+4. **Status Dashboard**: Display current status from Redis data
+
+## Example Cron Job
+
+```bash
+# Check credits every 30 minutes
+*/30 * * * * cd /path/to/project && python3 utils/monitor_openrouter_credits.py check
+
+# Or run continuous monitoring as a service
+# python3 utils/monitor_openrouter_credits.py monitor
+```
+
+## Error Handling
+
+The utility includes comprehensive error handling for:
+
+- Network connectivity issues
+- API authentication errors
+- Redis connection problems
+- Invalid API responses
+- Configuration errors
+
+## Dependencies
+
+- `httpx` - HTTP client for API requests
+- `redis` - Redis client for data storage
+- `pydantic-settings` - Configuration management
+- `pydantic` - Data validation
+
+## Development
+
+To extend the utility:
+
+1. **Add New Alert Types**: Extend the alert system in `send_alert()`
+2. **Custom Thresholds**: Add new threshold types in settings
+3. **Additional Metrics**: Parse more fields from OpenRouter API response
+4. **Integration**: Add webhook or email notification support
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Redis Connection Error**: Ensure Redis is running and accessible
+2. **API Key Error**: Verify OPENROUTER_API_KEY is set correctly
+3. **Permission Error**: Ensure script has read access to .env file
+
+### Debug Mode
+
+The utility includes debug output showing the raw API response. Remove or comment out the debug print statement in production:
+
+```python
+# Debug: Print the raw response to understand the structure
+print(f"DEBUG: Raw OpenRouter API response: {json.dumps(data, indent=2)}")
+```
+
+## Security Considerations
+
+- Store API keys securely (use environment variables, not hardcoded)
+- Limit Redis access to authorized applications only
+- Consider using Redis AUTH if running in production
+- Monitor alert frequency to detect potential issues
