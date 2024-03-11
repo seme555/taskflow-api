@@ -623,3 +623,39 @@ Can be used in automated maintenance scripts:
 
 ```bash
 # Check for defective tasks and alert if found
+DEFECTIVE_COUNT=$(python3 utils/delete_defective_tasks.py --dry-run | grep "Found.*defective tasks" | awk '{print $2}')
+if [ "$DEFECTIVE_COUNT" -gt 0 ]; then
+    echo "WARNING: $DEFECTIVE_COUNT defective tasks found in Redis"
+    # Send alert or notification
+fi
+```
+
+## Development
+
+When adding new API endpoints, make sure to update `test_api_endpoints.py` to include tests for the new endpoints.
+
+### Real-time System Testing
+
+To test the complete real-time monitoring system:
+
+1. **Start the API server:**
+   ```bash
+   docker compose up api
+   ```
+
+2. **Initialize counters (first time only):**
+   ```bash
+   python3 utils/initialize_counters.py
+   ```
+
+3. **Start the real-time monitor:**
+   ```bash
+   python3 utils/test_realtime_updates.py
+   ```
+
+4. **Create test tasks in another terminal:**
+   ```bash
+   python3 utils/test_api_endpoints.py
+   ```
+
+5. **Watch real-time updates** in the monitor terminal as tasks are created and processed.
