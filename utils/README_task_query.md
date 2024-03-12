@@ -123,3 +123,18 @@ error_history: 0 items
 - Redis server running on localhost:6379 (or modify the connection string in the script)
 
 ## Benefits
+
+1. **No Context Window Overflow**: Large payloads are summarized, not displayed in full
+2. **Structured Output**: Clean, readable format for task metadata
+3. **Selective Querying**: Get only the information you need
+4. **Content Type Detection**: Automatically detects base64, JSON, or text content
+5. **Timestamp Formatting**: Human-readable timestamp display
+6. **Error History**: Parsed and formatted error history and retry information
+
+## Use Cases
+
+- **Debugging Tasks**: Quickly check task state, errors, and timing without payload noise
+- **Monitoring**: Get overview of task progress and health
+- **Troubleshooting**: Examine error history and retry patterns
+- **Content Inspection**: Preview content without full display
+- **API Development**: Get structured data for integration with monitoring tools
