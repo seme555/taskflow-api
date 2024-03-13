@@ -123,3 +123,12 @@ async def main():
 
     if reset_result["status"] == "confirmation_required":
         print("\nTo proceed with the reset, run:")
+        print("  python utils/reset_redis.py --confirm")
+        print("  # or")
+        print("  docker compose run --rm reset --confirm")
+
+    print("\nReset utility complete.")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
