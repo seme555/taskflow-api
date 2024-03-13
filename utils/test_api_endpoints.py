@@ -123,3 +123,128 @@ class APITester:
             # and return the expected status code with the right content type
             async with self.client.stream(method.upper(), url) as response:
                 success = response.status_code == expected_status
+
+                # For SSE endpoints, check content type
+                content_type = response.headers.get("content-type", "")
+                is_sse = "text/event-stream" in content_type
+
+                # Read first chunk to verify it's streaming
+                first_chunk = None
+                try:
+                    async for chunk in response.aiter_text():
+                        first_chunk = chunk[:100]  # First 100 chars
+                        break  # Just get the first chunk
+                except Exception:
+                    pass
+
+                result = {
+                    "method": method.upper(),
+                    "path": path,
+                    "url": url,
+                    "expected_status": expected_status,
+                    "actual_status": response.status_code,
+                    "success": success and is_sse,
+                    "description": description,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "content_type": content_type,
+                    "is_streaming": is_sse,
+                    "first_chunk": first_chunk,
+                }
+
+                self.test_results.append(result)
+                return result
+
+        except Exception as e:
+            result = {
+                "method": method.upper(),
+                "path": path,
+                "url": url,
+                "expected_status": expected_status,
+                "actual_status": None,
+                "success": False,
+                "description": description,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "error": str(e),
+            }
+            self.test_results.append(result)
+            return result
+
+    async def test_root_endpoints(self):
+        """Test root and basic endpoints."""
+        print("Testing root endpoints...")
+
+        await self.test_endpoint("GET", "/", description="Root endpoint")
+
+    async def test_health_endpoints(self):
+        """Test all health check endpoints."""
+        print("Testing health endpoints...")
+
+        await self.test_endpoint("GET", "/health", description="Main health check")
+        await self.test_endpoint("GET", "/ready", description="Readiness check")
+        await self.test_endpoint("GET", "/live", description="Liveness check")
+        await self.test_endpoint(
+            "GET", "/api/v1/workers/", description="Worker health check"
+        )
+        await self.test_endpoint(
+            "POST",
+            "/api/v1/workers/reset-circuit-breaker",
+            description="Reset circuit breakers",
+        )
+        await self.test_endpoint(
+            "POST",
+            "/api/v1/workers/open-circuit-breaker",
+            description="Open circuit breakers",
+        )
+
+    async def test_task_creation(self) -> Optional[str]:
+        """Test task creation and return a task ID for further testing."""
+        print("Testing task creation...")
+
+        # Test summarization task creation
+        task_data = {
+            "content": "This is a test text for summarization. It should be processed by the worker system."
+        }
+        result = await self.test_endpoint(
+            "POST",
+            "/api/v1/tasks/summarize/",
+            expected_status=201,
+            json_data=task_data,
+            description="Create summarization task",
+        )
+
+        # Extract task ID if successful
+        task_id = None
+        if result["success"] and "response_preview" in result:
+            try:
+                if isinstance(result["response_preview"], dict):
+                    task_id = result["response_preview"].get("task_id")
+                elif isinstance(result["response_preview"], str):
+                    # Try to parse JSON from string
+                    import json
+
+                    data = json.loads(result["response_preview"])
+                    task_id = data.get("task_id")
+            except Exception:
+                pass
+
+        if task_id:
+            self.created_task_ids.append(task_id)
+            print(f"  Created task: {task_id}")
+
+        # Test PDF extraction task creation (without actual file upload for now)
+        # Note: This will fail with 422 since we're not providing a file, but it tests the endpoint exists
+        await self.test_endpoint(
+            "POST",
+            "/api/v1/tasks/pdfxtract",
+            expected_status=422,
+            description="Test PDF extraction endpoint (expected 422 - no file)",
+        )
+
+        return task_id
+
+    async def test_task_management(self, task_id: Optional[str] = None):
+        """Test task management endpoints."""
+        print("Testing task management endpoints...")
+
+        if task_id:
+            # Test getting specific task
