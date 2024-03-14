@@ -498,3 +498,69 @@ class APITester:
                         "successful_tests": sum(
                             1 for r in self.test_results if r["success"]
                         ),
+                        "failed_tests": sum(
+                            1 for r in self.test_results if not r["success"]
+                        ),
+                    },
+                    "results": self.test_results,
+                },
+                f,
+                indent=2,
+            )
+        print(f"\nDetailed results saved to: {filename}")
+
+
+async def main():
+    """Main function to run API tests."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Test all TaskFlow API API endpoints")
+    parser.add_argument(
+        "--url",
+        default="http://localhost:8000",
+        help="Base URL for the API (default: http://localhost:8000)",
+    )
+    parser.add_argument(
+        "--save-results", action="store_true", help="Save detailed results to JSON file"
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Only show summary, not individual test progress",
+    )
+
+    args = parser.parse_args()
+
+    # Redirect print if quiet mode
+    if args.quiet:
+        import io
+        import contextlib
+
+        # Capture prints during testing
+        f = io.StringIO()
+        with contextlib.redirect_stdout(f):
+            async with APITester(args.url) as tester:
+                await tester.run_all_tests()
+
+        # Show summary
+        tester.print_summary()
+    else:
+        async with APITester(args.url) as tester:
+            await tester.run_all_tests()
+            tester.print_summary()
+
+    if args.save_results:
+        tester.save_detailed_results()
+
+    # Exit with error code if any tests failed
+    failed_count = sum(1 for result in tester.test_results if not result["success"])
+    if failed_count > 0:
+        print(f"\nâš ï¸  {failed_count} tests failed!")
+        sys.exit(1)
+    else:
+        print("\nðŸŽ‰ All tests passed!")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
