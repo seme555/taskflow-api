@@ -248,3 +248,128 @@ class APITester:
 
         if task_id:
             # Test getting specific task
+            await self.test_endpoint(
+                "GET", f"/api/v1/tasks/{task_id}", description=f"Get task {task_id}"
+            )
+
+            # Test retry task (this might fail if task isn't in FAILED state, which is expected)
+            await self.test_endpoint(
+                "POST",
+                f"/api/v1/tasks/{task_id}/retry",
+                expected_status=400,  # Expect 400 since task likely isn't failed yet
+                json_data={"reset_retry_count": False},
+                description=f"Retry task {task_id} (expected to fail)",
+            )
+
+            # Test delete task
+            await self.test_endpoint(
+                "DELETE",
+                f"/api/v1/tasks/{task_id}",
+                description=f"Delete task {task_id}",
+            )
+        else:
+            # Test with a fake task ID
+            fake_task_id = str(uuid.uuid4())
+            await self.test_endpoint(
+                "GET",
+                f"/api/v1/tasks/{fake_task_id}",
+                expected_status=404,
+                description="Get non-existent task (expected 404)",
+            )
+
+        # Test listing tasks by status
+        await self.test_endpoint(
+            "GET",
+            "/api/v1/tasks/",
+            params={"status": "PENDING", "limit": 10},
+            description="List pending tasks",
+        )
+
+        await self.test_endpoint(
+            "GET",
+            "/api/v1/tasks/",
+            params={"status": "COMPLETED", "limit": 10},
+            description="List completed tasks",
+        )
+
+        await self.test_endpoint(
+            "GET",
+            "/api/v1/tasks/",
+            params={"status": "FAILED", "limit": 10},
+            description="List failed tasks",
+        )
+
+        # Test without status parameter (should succeed - lists all tasks)
+        await self.test_endpoint(
+            "GET",
+            "/api/v1/tasks/",
+            expected_status=200,
+            description="List all tasks without status filter",
+        )
+
+        # Test requeue orphaned tasks
+        await self.test_endpoint(
+            "POST",
+            "/api/v1/tasks/requeue-orphaned",
+            description="Requeue orphaned tasks",
+        )
+
+    async def test_queue_endpoints(self):
+        """Test queue monitoring endpoints."""
+        print("Testing queue endpoints...")
+
+        # Test queue status
+        await self.test_endpoint(
+            "GET", "/api/v1/queues/status", description="Get queue status"
+        )
+
+        # Test streaming queue status (just check it returns 200 and starts streaming)
+        await self.test_streaming_endpoint(
+            "GET",
+            "/api/v1/queues/status/stream",
+            description="Get streaming queue status",
+        )
+
+        # Test DLQ tasks
+        await self.test_endpoint(
+            "GET", "/api/v1/queues/dlq", description="Get DLQ tasks"
+        )
+        await self.test_endpoint(
+            "GET",
+            "/api/v1/queues/dlq",
+            params={"limit": 50},
+            description="Get DLQ tasks with limit",
+        )
+
+        # Test tasks in specific queues
+        queue_names = ["primary", "retry", "scheduled", "dlq"]
+        for queue_name in queue_names:
+            await self.test_endpoint(
+                "GET",
+                f"/api/v1/queues/{queue_name}/tasks",
+                description=f"Get tasks in {queue_name} queue",
+            )
+
+            await self.test_endpoint(
+                "GET",
+                f"/api/v1/queues/{queue_name}/tasks",
+                params={"limit": 5},
+                description=f"Get tasks in {queue_name} queue with limit",
+            )
+
+    async def test_openrouter_endpoints(self):
+        """Test OpenRouter monitoring endpoints."""
+        print("Testing OpenRouter endpoints...")
+
+        # Test OpenRouter status
+        await self.test_endpoint(
+            "GET", "/api/v1/openrouter/status", description="Get OpenRouter status"
+        )
+
+        # Test OpenRouter status with force refresh
+        await self.test_endpoint(
+            "GET",
+            "/api/v1/openrouter/status",
+            params={"force_refresh": True},
+            description="Get OpenRouter status (force refresh)",
+        )
