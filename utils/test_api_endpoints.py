@@ -373,3 +373,128 @@ class APITester:
             params={"force_refresh": True},
             description="Get OpenRouter status (force refresh)",
         )
+
+        # Test OpenRouter metrics
+        await self.test_endpoint(
+            "GET", "/api/v1/openrouter/metrics", description="Get OpenRouter metrics"
+        )
+
+        # Test OpenRouter metrics with custom days
+        await self.test_endpoint(
+            "GET",
+            "/api/v1/openrouter/metrics",
+            params={"days": 30},
+            description="Get OpenRouter metrics (30 days)",
+        )
+
+    async def test_redis_endpoints(self):
+        """Test Redis monitoring endpoints."""
+        print("Testing Redis endpoints...")
+
+        # Test Redis pool statistics
+        await self.test_endpoint(
+            "GET", "/api/v1/redis/pool-stats", description="Get Redis pool statistics"
+        )
+
+        # Test Redis health check
+        await self.test_endpoint(
+            "GET", "/api/v1/redis/health", description="Get Redis health status"
+        )
+
+    async def test_error_conditions(self):
+        """Test various error conditions."""
+        print("Testing error conditions...")
+
+        # Test invalid endpoints
+        await self.test_endpoint(
+            "GET",
+            "/api/v1/nonexistent",
+            expected_status=404,
+            description="Non-existent endpoint (expected 404)",
+        )
+
+        # Test invalid task creation
+        await self.test_endpoint(
+            "POST",
+            "/api/v1/tasks/summarize/",
+            expected_status=422,
+            json_data={"invalid_field": "test"},
+            description="Create task with invalid payload (expected 422)",
+        )
+
+        # Test invalid queue name
+        await self.test_endpoint(
+            "GET",
+            "/api/v1/queues/invalid_queue/tasks",
+            expected_status=422,
+            description="Invalid queue name (expected 422)",
+        )
+
+    async def run_all_tests(self):
+        """Run all endpoint tests."""
+        print("Starting comprehensive API endpoint testing...")
+        print(f"Base URL: {self.base_url}")
+        print(f"Started at: {datetime.now(timezone.utc).isoformat()}")
+        print("=" * 60)
+
+        # Run all test suites
+        await self.test_root_endpoints()
+        await self.test_health_endpoints()
+
+        # Create a task for testing task management
+        task_id = await self.test_task_creation()
+
+        # Wait a moment for task to be processed
+        await asyncio.sleep(1)
+
+        await self.test_task_management(task_id)
+        await self.test_queue_endpoints()
+        await self.test_openrouter_endpoints()
+        await self.test_redis_endpoints()
+        await self.test_error_conditions()
+
+        print("=" * 60)
+        print("Testing completed!")
+
+    def print_summary(self):
+        """Print test results summary."""
+        total_tests = len(self.test_results)
+        successful_tests = sum(1 for result in self.test_results if result["success"])
+        failed_tests = total_tests - successful_tests
+
+        print("\nTest Summary:")
+        print(f"Total endpoints tested: {total_tests}")
+        print(f"Successful: {successful_tests}")
+        print(f"Failed: {failed_tests}")
+        print(f"Success rate: {(successful_tests/total_tests)*100:.1f}%")
+
+        if failed_tests > 0:
+            print("\nFailed Tests:")
+            for result in self.test_results:
+                if not result["success"]:
+                    status_info = f"Expected {result['expected_status']}, got {result.get('actual_status', 'ERROR')}"
+                    print(f"  âŒ {result['method']} {result['path']} - {status_info}")
+                    if "error" in result:
+                        print(f"     Error: {result['error']}")
+                    elif "error_detail" in result:
+                        print(f"     Detail: {result['error_detail']}")
+
+        print("\nSuccessful Tests:")
+        for result in self.test_results:
+            if result["success"]:
+                print(
+                    f"  âœ… {result['method']} {result['path']} - {result['actual_status']}"
+                )
+
+    def save_detailed_results(self, filename: str = "utils/test_api_results.json"):
+        """Save detailed test results to JSON file."""
+        with open(filename, "w") as f:
+            json.dump(
+                {
+                    "test_run": {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "base_url": self.base_url,
+                        "total_tests": len(self.test_results),
+                        "successful_tests": sum(
+                            1 for r in self.test_results if r["success"]
+                        ),
