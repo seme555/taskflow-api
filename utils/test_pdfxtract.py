@@ -248,3 +248,69 @@ async def main():
     parser = argparse.ArgumentParser(
         description="Test PDF extraction with il-manifesto PDF"
     )
+    parser.add_argument(
+        "--url",
+        default="http://localhost:8000",
+        help="Base URL for the API (default: http://localhost:8000)",
+    )
+    parser.add_argument(
+        "--pdf-path",
+        default="docs/il-manifesto-del-31-dicembre-2023.pdf",
+        help="Path to the PDF file to process",
+    )
+    parser.add_argument(
+        "--output-path",
+        default="docs/il-manifesto-del-31-dicembre-2023.json",
+        help="Path for the output JSON file",
+    )
+    parser.add_argument(
+        "--issue-date",
+        default="2023-12-31",
+        help="Issue date for the newspaper (ISO 8601 format)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="Maximum time to wait for task completion (seconds)",
+    )
+
+    args = parser.parse_args()
+
+    # Convert paths to Path objects
+    pdf_path = Path(args.pdf_path)
+    output_path = Path(args.output_path)
+
+    print("PDF Extraction Test")
+    print(f"API URL: {args.url}")
+    print(f"Started at: {datetime.now(timezone.utc).isoformat()}")
+    print()
+
+    try:
+        async with PdfExtractTester(args.url) as tester:
+            success = await tester.test_pdf_extraction(
+                pdf_path=pdf_path,
+                output_path=output_path,
+                issue_date=args.issue_date,
+                max_wait_time=args.timeout,
+            )
+
+        print("=" * 60)
+        if success:
+            print("ðŸŽ‰ PDF extraction test completed successfully!")
+            print(f"ðŸ“„ Result saved to: {output_path}")
+            sys.exit(0)
+        else:
+            print("âŒ PDF extraction test failed!")
+            sys.exit(1)
+
+    except KeyboardInterrupt:
+        print("\nâš ï¸  Test interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\nðŸ’¥ Unexpected error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
