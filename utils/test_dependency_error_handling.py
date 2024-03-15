@@ -123,3 +123,58 @@ async def test_dependency_error_handling():
 
     return False
 
+
+async def cleanup_test_data():
+    """Clean up any test data from previous runs."""
+    redis_conn = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+
+    # Get all task keys that might be test data
+    task_keys = await redis_conn.keys("task:*")
+
+    for key in task_keys:
+        task_data = await redis_conn.hgetall(key)
+        if task_data.get("metadata"):
+            try:
+                metadata = json.loads(task_data["metadata"])
+                if metadata.get("filename") == "test_dependency_error.pdf":
+                    task_id = key.split(":", 1)[1]
+                    print(f"Cleaning up test task: {task_id}")
+
+                    # Remove from all possible locations
+                    await redis_conn.delete(key)
+                    await redis_conn.lrem("tasks:pending:primary", 0, task_id)
+                    await redis_conn.lrem("tasks:pending:retry", 0, task_id)
+                    await redis_conn.lrem("dlq:tasks", 0, task_id)
+                    await redis_conn.zrem("tasks:scheduled", task_id)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+
+async def main():
+    """Main test function."""
+    print("ðŸ§ª Testing Dependency Error Handling")
+    print("=" * 50)
+
+    # Clean up any previous test data
+    await cleanup_test_data()
+
+    # Run the test
+    success = await test_dependency_error_handling()
+
+    print("\n" + "=" * 50)
+    if success:
+        print("ðŸŽ‰ TEST PASSED: Dependency errors are correctly handled!")
+        print("   - Errors with missing dependencies go directly to DLQ")
+        print("   - No unnecessary retry attempts are made")
+        print("   - System resources are preserved")
+    else:
+        print("âŒ TEST FAILED: Dependency error handling needs improvement")
+        print("   - Check the error classification logic")
+        print("   - Verify the error handling in _handle_error function")
+
+    # Clean up test data
+    await cleanup_test_data()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
