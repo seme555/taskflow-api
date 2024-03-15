@@ -123,3 +123,128 @@ class PdfExtractTester:
                         return task_data
                     elif current_state == "FAILED":
                         print(f"âŒ Task failed after {time.time() - start_time:.1f}s")
+                        print(
+                            f"   Error: {task_data.get('last_error', 'Unknown error')}"
+                        )
+                        return task_data
+                    elif current_state == "DLQ":
+                        print(
+                            f"ðŸ’€ Task moved to dead letter queue after {time.time() - start_time:.1f}s"
+                        )
+                        print(
+                            f"   Error: {task_data.get('last_error', 'Unknown error')}"
+                        )
+                        return task_data
+
+                else:
+                    print(f"âŒ Error checking task status: {response.status_code}")
+                    print(f"   Response: {response.text}")
+                    return None
+
+            except Exception as e:
+                print(f"âŒ Error monitoring task: {e}")
+                return None
+
+            # Wait before next check
+            await asyncio.sleep(5)
+
+        print(f"â° Task monitoring timed out after {max_wait_time}s")
+        return None
+
+    async def save_extraction_result(self, task_data: dict, output_path: Path) -> bool:
+        """Save the extraction result to a JSON file."""
+        if not task_data or task_data.get("state") != "COMPLETED":
+            print("âŒ Cannot save result: task not completed successfully")
+            return False
+
+        result = task_data.get("result")
+        if not result:
+            print("âŒ No result data found in completed task")
+            return False
+
+        try:
+            # Parse the result JSON if it's a string
+            if isinstance(result, str):
+                result_data = json.loads(result)
+            else:
+                result_data = result
+
+            # Ensure output directory exists
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Save the result with pretty formatting
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(result_data, f, ensure_ascii=False, indent=2)
+
+            print(f"ðŸ’¾ Extraction result saved to: {output_path}")
+
+            # Print summary statistics
+            if isinstance(result_data, dict):
+                pages = result_data.get("pages", [])
+                total_pages = len(pages)
+                total_articles = sum(len(page.get("articles", [])) for page in pages)
+                processed_pages = sum(
+                    1 for page in pages if page.get("status") == "processed"
+                )
+                skipped_pages = total_pages - processed_pages
+
+                print("ðŸ“Š Extraction Summary:")
+                print(f"   Total pages: {total_pages}")
+                print(f"   Processed pages: {processed_pages}")
+                print(f"   Skipped pages: {skipped_pages}")
+                print(f"   Total articles extracted: {total_articles}")
+
+                if total_articles > 0:
+                    print(
+                        f"   Average articles per processed page: {total_articles/max(processed_pages, 1):.1f}"
+                    )
+
+            return True
+
+        except json.JSONDecodeError as e:
+            print(f"âŒ Error parsing result JSON: {e}")
+            return False
+        except Exception as e:
+            print(f"âŒ Error saving result: {e}")
+            return False
+
+    async def test_pdf_extraction(
+        self,
+        pdf_path: Path,
+        output_path: Path,
+        issue_date: Optional[str] = None,
+        max_wait_time: int = 300,
+    ) -> bool:
+        """Complete PDF extraction test workflow."""
+        print("ðŸš€ Starting PDF extraction test")
+        print(f"   PDF file: {pdf_path}")
+        print(f"   Output file: {output_path}")
+        print(f"   Issue date: {issue_date or 'Not specified'}")
+        print(f"   Max wait time: {max_wait_time}s")
+        print("=" * 60)
+
+        # Step 1: Upload PDF and create task
+        task_id = await self.upload_pdf_for_extraction(pdf_path, issue_date)
+        if not task_id:
+            return False
+
+        # Step 2: Monitor task until completion
+        task_data = await self.monitor_task(task_id, max_wait_time)
+        if not task_data:
+            return False
+
+        # Step 3: Save result if successful
+        if task_data.get("state") == "COMPLETED":
+            return await self.save_extraction_result(task_data, output_path)
+        else:
+            print(f"âŒ Task did not complete successfully: {task_data.get('state')}")
+            return False
+
+
+async def main():
+    """Main function to run PDF extraction test."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Test PDF extraction with il-manifesto PDF"
+    )
