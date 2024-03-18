@@ -123,3 +123,114 @@ async def test_basic_functionality():
     for i in range(10):
         start_time = time.time()
         success = await global_rate_limiter.acquire(1, timeout=0.1)  # Short timeout
+        elapsed = time.time() - start_time
+
+        if success:
+            successful += 1
+            print(f"   Request {i+1}: âœ… Acquired token in {elapsed:.3f}s")
+        else:
+            failed += 1
+            print(f"   Request {i+1}: âŒ Timeout after {elapsed:.3f}s")
+
+    print("\nðŸ“ˆ Results:")
+    print(f"   Successful: {successful}")
+    print(f"   Failed: {failed}")
+    print(f"   Success rate: {successful/(successful + failed)*100:.1f}%")
+
+    # Test status monitoring
+    print("\nðŸ“Š Rate Limit Status:")
+    try:
+        status = await get_rate_limit_status()
+        print(f"   Current tokens: {status['current_tokens']:.2f}")
+        print(f"   Capacity: {status['capacity']}")
+        print(f"   Refill rate: {status['refill_rate']:.2f} tokens/second")
+        print(f"   Utilization: {status['utilization_percent']:.1f}%")
+    except Exception as e:
+        print(f"   Status check failed: {e}")
+
+
+async def test_token_recovery():
+    """Test token recovery over time."""
+    print("\n" + "=" * 60)
+    print("â° Testing Token Recovery")
+    print("=" * 60)
+
+    # Exhaust some tokens
+    print("ðŸ”¥ Using some tokens...")
+    for i in range(5):
+        await global_rate_limiter.acquire(1, timeout=0.1)
+
+    print("\nðŸ“ˆ Monitoring token recovery:")
+    for i in range(3):
+        status = await get_rate_limit_status()
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print(f"   [{timestamp}] Tokens: {status['current_tokens']:.2f}")
+
+        if i < 2:  # Don't sleep after the last iteration
+            await asyncio.sleep(1)
+
+
+async def test_concurrent_access():
+    """Test concurrent access simulation."""
+    print("\n" + "=" * 60)
+    print("ðŸ‘¥ Testing Concurrent Access")
+    print("=" * 60)
+
+    async def worker_task(worker_id, num_requests):
+        successful = 0
+        for i in range(num_requests):
+            if await global_rate_limiter.acquire(1, timeout=0.5):
+                successful += 1
+            await asyncio.sleep(0.1)  # Small delay between requests
+        return successful
+
+    # Start multiple concurrent workers
+    num_workers = 3
+    requests_per_worker = 5
+
+    print(f"ðŸš€ Starting {num_workers} workers, {requests_per_worker} requests each:")
+
+    tasks = []
+    for i in range(num_workers):
+        task = asyncio.create_task(worker_task(i + 1, requests_per_worker))
+        tasks.append(task)
+
+    results = await asyncio.gather(*tasks)
+
+    total_successful = sum(results)
+    total_requests = num_workers * requests_per_worker
+
+    print("\nðŸ“Š Concurrent Access Results:")
+    for i, successful in enumerate(results):
+        print(f"   Worker {i+1}: {successful}/{requests_per_worker} successful")
+
+    print(f"\n   Total: {total_successful}/{total_requests} successful")
+    print(f"   Overall success rate: {total_successful/total_requests*100:.1f}%")
+
+
+async def main():
+    """Run all tests."""
+    print("ðŸŽ¯ Distributed Rate Limiter Test Suite (Mock Redis)")
+    print("=" * 70)
+
+    try:
+        await test_basic_functionality()
+        await test_token_recovery()
+        await test_concurrent_access()
+
+        print("\n" + "=" * 70)
+        print("âœ… All tests completed successfully!")
+        print("\nNote: This test uses a mock Redis implementation.")
+        print(
+            "For full testing with real Redis, ensure Redis is running and accessible."
+        )
+
+    except Exception as e:
+        print(f"\nâŒ Test failed with error: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
