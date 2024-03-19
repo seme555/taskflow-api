@@ -123,3 +123,24 @@ async def test_task_summaries(base_url: str = "http://localhost:8000"):
                     "   âš ï¸  No significant size difference (may not have large content tasks)"
                 )
 
+        print()
+        print("ðŸŽ‰ Task summaries endpoint is working correctly!")
+        print(
+            "ðŸ’¡ Use /api/v1/tasks/summaries/ instead of /api/v1/tasks/ to avoid large content fields"
+        )
+
+
+async def main():
+    """Main function."""
+    print("Task Summaries Test")
+    print("This script tests the fix for the PDF extraction task tagging issue")
+    print()
+
+    try:
+        await test_task_summaries()
+    except Exception as e:
+        print(f"âŒ Error: {e}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
