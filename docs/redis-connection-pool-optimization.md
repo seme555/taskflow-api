@@ -248,3 +248,57 @@ async with pipeline_client.pipeline() as pipe:
 
 1. **Start the services**:
 ```bash
+docker compose up -d
+```
+
+2. **Check connection pool status**:
+```bash
+curl http://localhost:8000/health
+```
+
+3. **Monitor pool statistics**:
+```bash
+# Watch connection usage during load
+watch -n 1 'curl -s http://localhost:8000/api/v1/redis/pool-stats'
+```
+
+4. **Test long-running operations**:
+```bash
+# Submit tasks and monitor connection stability
+curl -X POST http://localhost:8000/api/v1/summarize \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Long text to summarize..."}'
+```
+
+## Best Practices
+
+### 1. Connection Management
+- Always use the appropriate specialized client for your use case
+- Don't hold connections longer than necessary
+- Use connection pooling for all Redis operations
+
+### 2. Error Handling
+- Implement retry logic for transient connection errors
+- Use circuit breakers for external service calls
+- Log connection issues for monitoring
+
+### 3. Monitoring
+- Monitor connection pool statistics regularly
+- Set up alerts for connection pool exhaustion
+- Track connection health metrics
+
+### 4. Performance Tuning
+- Adjust pool sizes based on actual usage patterns
+- Monitor connection utilization and adjust accordingly
+- Use appropriate timeouts for different operation types
+
+## Conclusion
+
+The Redis connection pool optimization provides:
+
+- **Improved reliability** for long-running tasks
+- **Better resource utilization** through connection pooling
+- **Enhanced monitoring** for operational visibility
+- **Flexible configuration** for different deployment scenarios
+
+This optimization ensures that the TaskFlow API system can handle high-throughput, long-running task processing while maintaining connection stability and performance.
