@@ -123,3 +123,128 @@ The system now provides detailed connection pool statistics:
 
 ### 2. Improved Reliability
 - **Automatic retry logic** with exponential backoff
+- **Health monitoring** with automatic recovery
+- **TCP keepalive** prevents silent connection drops
+
+### 3. Better Resource Management
+- **Connection pooling** reduces connection overhead
+- **Specialized clients** optimize for specific use cases
+- **Proper cleanup** prevents resource leaks
+
+### 4. Enhanced Monitoring
+- **Real-time pool statistics** for operational visibility
+- **Health check endpoints** for system monitoring
+- **Connection lifecycle logging** for debugging
+
+## Configuration Options
+
+### Environment Variables
+
+```bash
+# Redis Connection Pool Settings
+REDIS_MAX_CONNECTIONS=50
+REDIS_SOCKET_TIMEOUT=30
+REDIS_HEALTH_CHECK_INTERVAL=30
+
+# Worker-Specific Settings
+WORKER_REDIS_MAX_CONNECTIONS=30
+WORKER_REDIS_SOCKET_TIMEOUT=60
+WORKER_REDIS_BLOCKING_TIMEOUT=300
+```
+
+### Tuning Guidelines
+
+#### For High-Throughput APIs
+- Increase `MAX_CONNECTIONS` (50-100)
+- Reduce `SOCKET_TIMEOUT` for faster failure detection
+- Increase `HEALTH_CHECK_INTERVAL` to reduce overhead
+
+#### For Long-Running Tasks
+- Increase `BLOCKING_TIMEOUT` for queue operations
+- Increase `SOCKET_TIMEOUT` for task processing
+- Enable TCP keepalive for stable connections
+
+#### For Memory-Constrained Environments
+- Reduce `MAX_CONNECTIONS` (20-30)
+- Increase `HEALTH_CHECK_INTERVAL` to reduce overhead
+- Use connection pooling more aggressively
+
+## Monitoring and Troubleshooting
+
+### Health Check Endpoints
+
+```bash
+# Check Redis connection health
+GET /health
+
+# Get detailed pool statistics
+GET /api/v1/redis/pool-stats
+```
+
+### Log Analysis
+
+Look for these log patterns:
+
+```
+# Successful initialization
+Redis connection pool initialized: max_connections=50, health_check_interval=30s
+
+# Health monitoring
+Redis pool health: 12 available, 15 total connections
+
+# Connection issues
+Redis operation failed (attempt 1), retrying in 2s: Connection timeout
+```
+
+### Common Issues and Solutions
+
+#### Connection Pool Exhaustion
+- **Symptoms**: "ConnectionPool is full" errors
+- **Solution**: Increase `MAX_CONNECTIONS` or optimize connection usage
+
+#### Socket Timeouts
+- **Symptoms**: "Socket timeout" errors during long operations
+- **Solution**: Increase `SOCKET_TIMEOUT` or use specialized clients
+
+#### Connection Drops
+- **Symptoms**: Intermittent connection failures
+- **Solution**: Enable TCP keepalive and health monitoring
+
+## Migration Guide
+
+### From Basic Redis Client
+
+1. **Update imports**:
+```python
+# Before
+import redis.asyncio as redis
+
+# After
+from redis_config import get_standard_redis, get_long_running_redis
+```
+
+2. **Update connection creation**:
+```python
+# Before
+redis_conn = redis.from_url(redis_url)
+
+# After
+redis_conn = await get_standard_redis()
+```
+
+3. **Use specialized clients**:
+```python
+# For blocking operations
+blocking_client = await get_long_running_redis()
+result = await blocking_client.blpop(keys, timeout=300)
+
+# For pipeline operations
+pipeline_client = await get_pipeline_redis()
+async with pipeline_client.pipeline() as pipe:
+    # Batch operations
+```
+
+### Testing the Migration
+
+1. **Start the services**:
+```bash
