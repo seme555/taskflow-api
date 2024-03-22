@@ -45,17 +45,17 @@ General Instructions:
 Example of text processing for hyphenation:
 If the image shows:
 
-Questa Ã¨ una frase che continua con la parola presi-
+Questa è una frase che continua con la parola presi-
 dente scritta su due righe.
 
-Then the text field should contain: "Questa Ã¨ una frase che continua con la parola presidente scritta su due righe."
+Then the text field should contain: "Questa è una frase che continua con la parola presidente scritta su due righe."
 
 Example of text processing for normal line break:
 If the image shows:
 
-Questa Ã¨ la prima riga.
-Questa Ã¨ la seconda riga.
+Questa è la prima riga.
+Questa è la seconda riga.
 
-Then the text field should contain: "Questa Ã¨ la prima riga. Questa Ã¨ la seconda riga."
+Then the text field should contain: "Questa è la prima riga. Questa è la seconda riga."
 
 Based on the image provided, please proceed with the extraction.

@@ -24,7 +24,7 @@ Your output MUST be a single, valid, and parseable JSON object that strictly adh
           "author": "Mario Rossi",
           "body": "Testo completo dell'articolo senza interruzioni.",
           "topics": ["politica", "Italia", "democrazia"],
-          "summary": "Breve riassunto del contenuto dellâ€™articolo."
+          "summary": "Breve riassunto del contenuto dell’articolo."
         }
       ]
     },
@@ -91,7 +91,7 @@ Your output MUST be a single, valid, and parseable JSON object that strictly adh
 
 10. **`topics` (array of strings, optional):**
 
-    * Generate 3â€“5 relevant keywords in the language of the article.
+    * Generate 3–5 relevant keywords in the language of the article.
     * If undeterminable, omit or set to `null`.
 
 11. **`summary` (string, optional):**
@@ -104,7 +104,7 @@ Your output MUST be a single, valid, and parseable JSON object that strictly adh
 * **Single Page Focus:** Only process content visible on the provided page.
 * **Strict Schema Adherence:** Output must exactly match the JSON structure and types as specified.
 * **Lead Headline:** If a headline appears for the whole issue and is not tied to any article, ignore it.
-* **Missing Fields:** If any optional field is not present, omit it or handle as specified above. The `title` and `body` fields must always be presentâ€”use empty strings for missing titles, but `body` must never be empty.
+* **Missing Fields:** If any optional field is not present, omit it or handle as specified above. The `title` and `body` fields must always be present—use empty strings for missing titles, but `body` must never be empty.
 
 **Examples for text processing:**
 
@@ -118,8 +118,8 @@ Your output MUST be a single, valid, and parseable JSON object that strictly adh
 * Line breaks:
 
   ```
-  Questa Ã¨ una frase su due righe.
+  Questa è una frase su due righe.
   La seconda riga continua qui.
   -->
-  "Questa Ã¨ una frase su due righe. La seconda riga continua qui."
+  "Questa è una frase su due righe. La seconda riga continua qui."
   ```

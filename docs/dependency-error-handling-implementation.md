@@ -101,21 +101,21 @@ try:
 
 The system now classifies errors into the following categories:
 
-### 1. Dependency Errors â†’ DLQ
+### 1. Dependency Errors → DLQ
 - Missing system packages (poppler, imagemagick, etc.)
 - Missing Python modules
 - Command not found errors
 - Permission denied errors
 - Configuration errors
 
-### 2. Permanent Errors â†’ DLQ
+### 2. Permanent Errors → DLQ
 - Invalid API keys
 - Authentication failures
 - Malformed requests
 - Invalid file formats
 - Quota exceeded errors
 
-### 3. Transient Errors â†’ Retry
+### 3. Transient Errors → Retry
 - Network timeouts
 - Rate limiting (429)
 - Service unavailable (503)
@@ -135,18 +135,18 @@ python utils/test_dependency_error_handling.py
 ### Test Results
 
 ```
-ðŸ§ª Testing Dependency Error Handling
+🧪 Testing Dependency Error Handling
 ==================================================
 Creating test task e7e3bd8f-c43d-4450-a040-e1e405f9a016 to test dependency error handling...
 Task e7e3bd8f-c43d-4450-a040-e1e405f9a016 added to primary queue. Waiting for processing...
-âœ… SUCCESS: Task e7e3bd8f-c43d-4450-a040-e1e405f9a016 was correctly moved to DLQ!
+✅ SUCCESS: Task e7e3bd8f-c43d-4450-a040-e1e405f9a016 was correctly moved to DLQ!
    Error Type: PermanentError
    Last Error: PDF extraction error: Invalid base64-encoded string: number of data characters (45) cannot be 1 more than a multiple of 4
-   âœ… Task is correctly present in DLQ
-   âœ… Task is correctly NOT in retry or scheduled queues
+   ✅ Task is correctly present in DLQ
+   ✅ Task is correctly NOT in retry or scheduled queues
 
 ==================================================
-ðŸŽ‰ TEST PASSED: Dependency errors are correctly handled!
+🎉 TEST PASSED: Dependency errors are correctly handled!
    - Errors with missing dependencies go directly to DLQ
    - No unnecessary retry attempts are made
    - System resources are preserved

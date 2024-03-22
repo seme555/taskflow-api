@@ -37,7 +37,7 @@ def calculate_backoff_delay(
     # Cap at max_delay
     delay = min(delay, max_delay)
 
-    # Add jitter (Â±25% of the delay)
+    # Add jitter (±25% of the delay)
     jitter = delay * 0.25 * (2 * random.random() - 1)
     final_delay = delay + jitter
 

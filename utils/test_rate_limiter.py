@@ -18,7 +18,7 @@ from rate_limiter import global_rate_limiter, get_rate_limit_status
 
 async def test_rate_limiter_basic():
     """Test basic rate limiter functionality."""
-    print("ðŸ§ª Testing Distributed Rate Limiter")
+    print("🧪 Testing Distributed Rate Limiter")
     print("=" * 50)
 
     # Reset bucket for clean test
@@ -29,7 +29,7 @@ async def test_rate_limiter_basic():
         5, "10s"
     )  # 5 requests per 10 seconds
 
-    print("ðŸ“Š Initial status:")
+    print("📊 Initial status:")
     status = await get_rate_limit_status()
     print(f"   Capacity: {status['capacity']}")
     print(f"   Current tokens: {status['current_tokens']:.2f}")
@@ -39,16 +39,16 @@ async def test_rate_limiter_basic():
     )
 
     # Test acquiring tokens
-    print("\nðŸ”„ Testing token acquisition:")
+    print("\n🔄 Testing token acquisition:")
     for i in range(7):  # Try to get more tokens than capacity
         start_time = time.time()
         success = await global_rate_limiter.acquire(1, timeout=2.0)
         elapsed = time.time() - start_time
 
         if success:
-            print(f"   Request {i+1}: âœ… Acquired token in {elapsed:.3f}s")
+            print(f"   Request {i+1}: ✅ Acquired token in {elapsed:.3f}s")
         else:
-            print(f"   Request {i+1}: âŒ Timeout after {elapsed:.3f}s")
+            print(f"   Request {i+1}: ❌ Timeout after {elapsed:.3f}s")
 
         # Show current status
         status = await get_rate_limit_status()
@@ -56,7 +56,7 @@ async def test_rate_limiter_basic():
             f"      Remaining tokens: {status['current_tokens']:.2f} ({status['utilization_percent']:.1f}% utilized)"
         )
 
-    print("\nðŸ“ˆ Final status:")
+    print("\n📈 Final status:")
     status = await get_rate_limit_status()
     print(f"   Current tokens: {status['current_tokens']:.2f}")
     print(f"   Utilization: {status['utilization_percent']:.1f}%")
@@ -65,7 +65,7 @@ async def test_rate_limiter_basic():
 async def test_rate_limiter_with_openrouter_config():
     """Test rate limiter with actual OpenRouter configuration."""
     print("\n" + "=" * 50)
-    print("ðŸŒ Testing with OpenRouter Configuration")
+    print("🌐 Testing with OpenRouter Configuration")
     print("=" * 50)
 
     # Reset bucket
@@ -74,14 +74,14 @@ async def test_rate_limiter_with_openrouter_config():
     # Set OpenRouter configuration (230 requests per 10s)
     await global_rate_limiter.update_rate_limit_config(230, "10s")
 
-    print("ðŸ“Š OpenRouter configuration loaded:")
+    print("📊 OpenRouter configuration loaded:")
     status = await get_rate_limit_status()
     print(f"   Capacity: {status['capacity']} requests")
     print(f"   Refill rate: {status['refill_rate']:.2f} requests/second")
     print(f"   Max requests per second: {status['refill_rate']:.1f}")
 
     # Test burst requests
-    print("\nðŸš€ Testing burst requests (simulating multiple workers):")
+    print("\n🚀 Testing burst requests (simulating multiple workers):")
     burst_size = 10
     start_time = time.time()
 
@@ -108,7 +108,7 @@ async def test_rate_limiter_with_openrouter_config():
 async def test_rate_limiter_recovery():
     """Test rate limiter token recovery over time."""
     print("\n" + "=" * 50)
-    print("â° Testing Token Recovery Over Time")
+    print("⏰ Testing Token Recovery Over Time")
     print("=" * 50)
 
     # Use a smaller bucket for faster testing
@@ -117,7 +117,7 @@ async def test_rate_limiter_recovery():
     )  # 10 requests per 5 seconds
 
     # Exhaust the bucket
-    print("ðŸ”¥ Exhausting token bucket...")
+    print("🔥 Exhausting token bucket...")
     for i in range(10):
         success = await global_rate_limiter.acquire(1, timeout=0.1)
         if not success:
@@ -127,7 +127,7 @@ async def test_rate_limiter_recovery():
     print(f"   Tokens after exhaustion: {status['current_tokens']:.2f}")
 
     # Monitor recovery
-    print("\nðŸ“ˆ Monitoring token recovery:")
+    print("\n📈 Monitoring token recovery:")
     for i in range(6):  # Monitor for 6 seconds
         await asyncio.sleep(1)
         status = await get_rate_limit_status()
@@ -140,7 +140,7 @@ async def test_rate_limiter_recovery():
 async def simulate_multiple_workers():
     """Simulate multiple workers competing for rate limit tokens."""
     print("\n" + "=" * 50)
-    print("ðŸ‘¥ Simulating Multiple Workers")
+    print("👥 Simulating Multiple Workers")
     print("=" * 50)
 
     # Reset and configure
@@ -178,7 +178,7 @@ async def simulate_multiple_workers():
     num_workers = 5
     requests_per_worker = 8
 
-    print(f"ðŸš€ Starting {num_workers} workers, {requests_per_worker} requests each:")
+    print(f"🚀 Starting {num_workers} workers, {requests_per_worker} requests each:")
 
     start_time = time.time()
     tasks = []
@@ -196,7 +196,7 @@ async def simulate_multiple_workers():
     total_failed = sum(r[1] for r in results)
     avg_wait_times = [r[2] for r in results]
 
-    print("\nðŸ“Š Simulation Results:")
+    print("\n📊 Simulation Results:")
     print(f"   Total requests: {total_successful + total_failed}")
     print(f"   Successful: {total_successful}")
     print(f"   Failed: {total_failed}")
@@ -210,7 +210,7 @@ async def simulate_multiple_workers():
 
 async def main():
     """Run all rate limiter tests."""
-    print("ðŸŽ¯ Distributed Rate Limiter Test Suite")
+    print("🎯 Distributed Rate Limiter Test Suite")
     print("=" * 60)
 
     try:
@@ -220,10 +220,10 @@ async def main():
         await simulate_multiple_workers()
 
         print("\n" + "=" * 60)
-        print("âœ… All tests completed successfully!")
+        print("✅ All tests completed successfully!")
 
     except Exception as e:
-        print(f"\nâŒ Test failed with error: {e}")
+        print(f"\n❌ Test failed with error: {e}")
         import traceback
 
         traceback.print_exc()

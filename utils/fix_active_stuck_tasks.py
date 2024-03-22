@@ -83,9 +83,9 @@ def main():
         # Add to retry queue for reprocessing
         r.lpush("tasks:pending:retry", task_id)
 
-        print(f"  âœ… Moved task {task_id} from ACTIVE to FAILED and queued for retry")
+        print(f"  ✅ Moved task {task_id} from ACTIVE to FAILED and queued for retry")
 
-    print(f"\nðŸŽ‰ Successfully processed {len(stuck_tasks)} stuck tasks")
+    print(f"\n🎉 Successfully processed {len(stuck_tasks)} stuck tasks")
     print("Tasks have been moved to FAILED state and queued for retry")
 
 

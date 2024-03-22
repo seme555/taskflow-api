@@ -41,10 +41,10 @@ class PdfExtractTester:
     ) -> Optional[str]:
         """Upload PDF file and create extraction task."""
         if not pdf_path.exists():
-            print(f"âŒ PDF file not found: {pdf_path}")
+            print(f"❌ PDF file not found: {pdf_path}")
             return None
 
-        print(f"ðŸ“„ Uploading PDF: {pdf_path.name}")
+        print(f"📄 Uploading PDF: {pdf_path.name}")
         print(f"   File size: {pdf_path.stat().st_size / 1024 / 1024:.2f} MB")
 
         try:
@@ -63,23 +63,23 @@ class PdfExtractTester:
             if response.status_code == 201:
                 result = response.json()
                 task_id = result.get("task_id")
-                print(f"âœ… Task created successfully: {task_id}")
+                print(f"✅ Task created successfully: {task_id}")
                 print(f"   Initial state: {result.get('state')}")
                 return task_id
             else:
-                print(f"âŒ Failed to create task: {response.status_code}")
+                print(f"❌ Failed to create task: {response.status_code}")
                 print(f"   Error: {response.text}")
                 return None
 
         except Exception as e:
-            print(f"âŒ Error uploading PDF: {e}")
+            print(f"❌ Error uploading PDF: {e}")
             return None
 
     async def monitor_task(
         self, task_id: str, max_wait_time: int = 300
     ) -> Optional[dict]:
         """Monitor task until completion or timeout."""
-        print(f"â³ Monitoring task {task_id}...")
+        print(f"⏳ Monitoring task {task_id}...")
 
         start_time = time.time()
         last_state = None
@@ -118,18 +118,18 @@ class PdfExtractTester:
                     # Check if task is complete
                     if current_state == "COMPLETED":
                         print(
-                            f"âœ… Task completed successfully in {time.time() - start_time:.1f}s"
+                            f"✅ Task completed successfully in {time.time() - start_time:.1f}s"
                         )
                         return task_data
                     elif current_state == "FAILED":
-                        print(f"âŒ Task failed after {time.time() - start_time:.1f}s")
+                        print(f"❌ Task failed after {time.time() - start_time:.1f}s")
                         print(
                             f"   Error: {task_data.get('last_error', 'Unknown error')}"
                         )
                         return task_data
                     elif current_state == "DLQ":
                         print(
-                            f"ðŸ’€ Task moved to dead letter queue after {time.time() - start_time:.1f}s"
+                            f"💀 Task moved to dead letter queue after {time.time() - start_time:.1f}s"
                         )
                         print(
                             f"   Error: {task_data.get('last_error', 'Unknown error')}"
@@ -137,29 +137,29 @@ class PdfExtractTester:
                         return task_data
 
                 else:
-                    print(f"âŒ Error checking task status: {response.status_code}")
+                    print(f"❌ Error checking task status: {response.status_code}")
                     print(f"   Response: {response.text}")
                     return None
 
             except Exception as e:
-                print(f"âŒ Error monitoring task: {e}")
+                print(f"❌ Error monitoring task: {e}")
                 return None
 
             # Wait before next check
             await asyncio.sleep(5)
 
-        print(f"â° Task monitoring timed out after {max_wait_time}s")
+        print(f"⏰ Task monitoring timed out after {max_wait_time}s")
         return None
 
     async def save_extraction_result(self, task_data: dict, output_path: Path) -> bool:
         """Save the extraction result to a JSON file."""
         if not task_data or task_data.get("state") != "COMPLETED":
-            print("âŒ Cannot save result: task not completed successfully")
+            print("❌ Cannot save result: task not completed successfully")
             return False
 
         result = task_data.get("result")
         if not result:
-            print("âŒ No result data found in completed task")
+            print("❌ No result data found in completed task")
             return False
 
         try:
@@ -176,7 +176,7 @@ class PdfExtractTester:
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(result_data, f, ensure_ascii=False, indent=2)
 
-            print(f"ðŸ’¾ Extraction result saved to: {output_path}")
+            print(f"💾 Extraction result saved to: {output_path}")
 
             # Print summary statistics
             if isinstance(result_data, dict):
@@ -188,7 +188,7 @@ class PdfExtractTester:
                 )
                 skipped_pages = total_pages - processed_pages
 
-                print("ðŸ“Š Extraction Summary:")
+                print("📊 Extraction Summary:")
                 print(f"   Total pages: {total_pages}")
                 print(f"   Processed pages: {processed_pages}")
                 print(f"   Skipped pages: {skipped_pages}")
@@ -202,10 +202,10 @@ class PdfExtractTester:
             return True
 
         except json.JSONDecodeError as e:
-            print(f"âŒ Error parsing result JSON: {e}")
+            print(f"❌ Error parsing result JSON: {e}")
             return False
         except Exception as e:
-            print(f"âŒ Error saving result: {e}")
+            print(f"❌ Error saving result: {e}")
             return False
 
     async def test_pdf_extraction(
@@ -216,7 +216,7 @@ class PdfExtractTester:
         max_wait_time: int = 300,
     ) -> bool:
         """Complete PDF extraction test workflow."""
-        print("ðŸš€ Starting PDF extraction test")
+        print("🚀 Starting PDF extraction test")
         print(f"   PDF file: {pdf_path}")
         print(f"   Output file: {output_path}")
         print(f"   Issue date: {issue_date or 'Not specified'}")
@@ -237,7 +237,7 @@ class PdfExtractTester:
         if task_data.get("state") == "COMPLETED":
             return await self.save_extraction_result(task_data, output_path)
         else:
-            print(f"âŒ Task did not complete successfully: {task_data.get('state')}")
+            print(f"❌ Task did not complete successfully: {task_data.get('state')}")
             return False
 
 
@@ -297,18 +297,18 @@ async def main():
 
         print("=" * 60)
         if success:
-            print("ðŸŽ‰ PDF extraction test completed successfully!")
-            print(f"ðŸ“„ Result saved to: {output_path}")
+            print("🎉 PDF extraction test completed successfully!")
+            print(f"📄 Result saved to: {output_path}")
             sys.exit(0)
         else:
-            print("âŒ PDF extraction test failed!")
+            print("❌ PDF extraction test failed!")
             sys.exit(1)
 
     except KeyboardInterrupt:
-        print("\nâš ï¸  Test interrupted by user")
+        print("\n⚠️  Test interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\nðŸ’¥ Unexpected error: {e}")
+        print(f"\n💥 Unexpected error: {e}")
         sys.exit(1)
 
 

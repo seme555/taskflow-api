@@ -11,18 +11,18 @@ import httpx
 async def test_task_summaries(base_url: str = "http://localhost:8000"):
     """Test the new task summaries endpoint."""
 
-    print("ðŸ” Testing Task Summaries Endpoint")
+    print("🔍 Testing Task Summaries Endpoint")
     print("=" * 50)
 
     async with httpx.AsyncClient() as client:
         # Test 1: List all task summaries
-        print("ðŸ“‹ Listing all task summaries...")
+        print("📋 Listing all task summaries...")
         response = await client.get(f"{base_url}/api/v1/tasks/summaries/")
 
         if response.status_code == 200:
             data = response.json()
             total_items = data.get("total_items", 0)
-            print(f"âœ… Found {total_items} tasks")
+            print(f"✅ Found {total_items} tasks")
 
             # Show task type distribution
             task_types = {}
@@ -30,14 +30,14 @@ async def test_task_summaries(base_url: str = "http://localhost:8000"):
                 task_type = task.get("task_type", "unknown")
                 task_types[task_type] = task_types.get(task_type, 0) + 1
 
-            print("ðŸ“Š Task type distribution:")
+            print("📊 Task type distribution:")
             for task_type, count in task_types.items():
                 print(f"   {task_type}: {count} tasks")
 
             print()
 
             # Show recent tasks
-            print("ðŸ•’ Recent tasks:")
+            print("🕒 Recent tasks:")
             for task in data.get("tasks", [])[:3]:
                 task_id = task.get("task_id", "unknown")[:8] + "..."
                 task_type = task.get("task_type", "unknown")
@@ -50,13 +50,13 @@ async def test_task_summaries(base_url: str = "http://localhost:8000"):
                 )
 
         else:
-            print(f"âŒ Error: {response.status_code} - {response.text}")
+            print(f"❌ Error: {response.status_code} - {response.text}")
             return
 
         print()
 
         # Test 2: Find PDF extraction tasks
-        print("ðŸ” Searching for PDF extraction tasks...")
+        print("🔍 Searching for PDF extraction tasks...")
         response = await client.get(
             f"{base_url}/api/v1/tasks/summaries/?task_id=e1c3ba11"
         )
@@ -66,7 +66,7 @@ async def test_task_summaries(base_url: str = "http://localhost:8000"):
             pdf_tasks = data.get("tasks", [])
 
             if pdf_tasks:
-                print(f"âœ… Found {len(pdf_tasks)} PDF extraction task(s)")
+                print(f"✅ Found {len(pdf_tasks)} PDF extraction task(s)")
 
                 for task in pdf_tasks:
                     task_id = task.get("task_id")
@@ -75,9 +75,9 @@ async def test_task_summaries(base_url: str = "http://localhost:8000"):
                     content_length = task.get("content_length", 0)
                     created_at = task.get("created_at", "")
 
-                    print("ðŸ“„ PDF Task Details:")
+                    print("📄 PDF Task Details:")
                     print(f"   ID: {task_id}")
-                    print(f"   Type: {task_type} âœ… (correctly tagged)")
+                    print(f"   Type: {task_type} ✅ (correctly tagged)")
                     print(f"   State: {state}")
                     print(
                         f"   Content Size: {content_length:,} characters ({content_length/1024/1024:.1f} MB)"
@@ -86,19 +86,19 @@ async def test_task_summaries(base_url: str = "http://localhost:8000"):
 
                     if task_type == "pdfxtract":
                         print(
-                            "   âœ… Task is correctly tagged as 'pdfxtract' (not 'summarize')"
+                            "   ✅ Task is correctly tagged as 'pdfxtract' (not 'summarize')"
                         )
                     else:
-                        print("   âŒ Task is incorrectly tagged")
+                        print("   ❌ Task is incorrectly tagged")
             else:
-                print("âŒ No PDF extraction tasks found")
+                print("❌ No PDF extraction tasks found")
         else:
-            print(f"âŒ Error searching for PDF tasks: {response.status_code}")
+            print(f"❌ Error searching for PDF tasks: {response.status_code}")
 
         print()
 
         # Test 3: Compare response sizes
-        print("ðŸ“ Comparing response sizes...")
+        print("📏 Comparing response sizes...")
 
         # Get full task details (with content)
         full_response = await client.get(f"{base_url}/api/v1/tasks/?page_size=5")
@@ -117,16 +117,16 @@ async def test_task_summaries(base_url: str = "http://localhost:8000"):
             )
 
             if full_size > summary_size:
-                print("   âœ… Summary endpoint successfully reduces response size")
+                print("   ✅ Summary endpoint successfully reduces response size")
             else:
                 print(
-                    "   âš ï¸  No significant size difference (may not have large content tasks)"
+                    "   ⚠️  No significant size difference (may not have large content tasks)"
                 )
 
         print()
-        print("ðŸŽ‰ Task summaries endpoint is working correctly!")
+        print("🎉 Task summaries endpoint is working correctly!")
         print(
-            "ðŸ’¡ Use /api/v1/tasks/summaries/ instead of /api/v1/tasks/ to avoid large content fields"
+            "💡 Use /api/v1/tasks/summaries/ instead of /api/v1/tasks/ to avoid large content fields"
         )
 
 
@@ -139,7 +139,7 @@ async def main():
     try:
         await test_task_summaries()
     except Exception as e:
-        print(f"âŒ Error: {e}")
+        print(f"❌ Error: {e}")
 
 
 if __name__ == "__main__":

@@ -60,7 +60,7 @@ Successful: 29
 Failed: 0
 Success rate: 100.0%
 
-ðŸŽ‰ All tests passed!
+🎉 All tests passed!
 ```
 
 #### What It Tests
@@ -238,12 +238,12 @@ python3 utils/fix_counter_sync.py redis://localhost:6379/1
 #### Example Output
 
 ```
-ðŸ” Analyzing Redis task state counters...
+🔍 Analyzing Redis task state counters...
 
-ðŸ“Š Analysis Results:
+📊 Analysis Results:
    Total tasks found: 28
 
-ðŸ“ˆ Counter Values:
+📈 Counter Values:
    State        Old    New    Change
    ------------ ------ ------ --------
    PENDING      0      0      0
@@ -253,7 +253,7 @@ python3 utils/fix_counter_sync.py redis://localhost:6379/1
    SCHEDULED    0      0      0
    DLQ          0      0      0
 
-âœ… Fixed 1 counter discrepancies:
+✅ Fixed 1 counter discrepancies:
    - ACTIVE: -1
 ```
 
@@ -334,7 +334,7 @@ python3 utils/inject_test_tasks.py --count 15 --delay 0.3 --monitor 45 --show-qu
 - **Dashboard Responsiveness**: See how the dashboard reacts to multiple tasks
 - **Real-time Updates**: Test SSE/WebSocket functionality with actual task flow
 - **Queue Visualization**: Verify queue depth changes are reflected in UI
-- **Task State Transitions**: Monitor how frontend shows PENDING â†’ ACTIVE â†’ COMPLETED
+- **Task State Transitions**: Monitor how frontend shows PENDING → ACTIVE → COMPLETED
 - **Performance**: Test frontend performance with multiple simultaneous tasks
 
 #### Example Output
@@ -350,9 +350,9 @@ Delay between tasks: 0.5s
 Batch size: 1
 Target API: http://localhost:8000
 Creating task 1/10...
-  âœ… Task 1 created: 550e8400-e29b-41d4-a716-446655440000
+  ✅ Task 1 created: 550e8400-e29b-41d4-a716-446655440000
 Creating task 2/10...
-  âœ… Task 2 created: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+  ✅ Task 2 created: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
 ...
 
 TASK INJECTION SUMMARY
@@ -366,8 +366,8 @@ Created Task IDs:
   Task 2: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
   ...
 
-ðŸŽ‰ All 10 tasks created successfully!
-ðŸ’¡ Use --cleanup flag to automatically delete created tasks
+🎉 All 10 tasks created successfully!
+💡 Use --cleanup flag to automatically delete created tasks
 ```
 
 ### `gen_10_summaries_multilingual.py`
@@ -426,7 +426,7 @@ python3 utils/gen_10_summaries_multilingual.py --delay 0.5 --show-queue-status -
 5. Environmental conspiracy (Vesuvius eruption cover-up)
 
 **Other Languages:**
-1. **Spanish**: Political conspiracy (SÃ¡nchez-Soros destruction plan)
+1. **Spanish**: Political conspiracy (Sánchez-Soros destruction plan)
 2. **French**: Health misinformation (Macron hiding vaccine deaths)
 3. **German**: Economic conspiracy (Scholz selling Germany to China)
 4. **Portuguese**: Celebrity scandal (Cristiano Ronaldo money laundering)
@@ -451,12 +451,12 @@ Delay between submissions: 0.5s
 
 Generating 10 multilingual fake news summarization tasks...
 Submitting Italian Fake News #1 (1510 chars)...
-  âœ… Created: df0235f3-fc9e-4a30-afc1-6911230cd24a
+  ✅ Created: df0235f3-fc9e-4a30-afc1-6911230cd24a
 Submitting Italian Fake News #2 (1454 chars)...
-  âœ… Created: 5c1d5af9-4c85-4bc8-8c3a-763adc4c1eb7
+  ✅ Created: 5c1d5af9-4c85-4bc8-8c3a-763adc4c1eb7
 ...
 Submitting English Fake News #5 (1533 chars)...
-  âœ… Created: f0f7bd4e-c96d-4840-bc42-d792f5db6f59
+  ✅ Created: f0f7bd4e-c96d-4840-bc42-d792f5db6f59
 
 MULTILINGUAL FAKE NEWS TASK GENERATION SUMMARY
 Total tasks attempted: 10
@@ -468,8 +468,8 @@ Language Distribution:
   Italian articles: 5
   Other languages: 5
 
-ðŸŽ‰ All 10 multilingual tasks created successfully!
-ðŸ’¡ Use --monitor flag to track task processing progress
+🎉 All 10 multilingual tasks created successfully!
+💡 Use --monitor flag to track task processing progress
 ```
 
 #### Dependencies
@@ -519,7 +519,7 @@ python3 utils/test_realtime_updates.py
 
 [14:30:25] task_state_changed
   Task: 550e8400-e29b-41d4-a716-446655440000
-    State: PENDING â†’ ACTIVE
+    State: PENDING → ACTIVE
     Queue Depths: {'primary': 5, 'retry': 2, 'scheduled': 0, 'dlq': 1}
     State Counts: {'PENDING': 7, 'ACTIVE': 2, 'COMPLETED': 45, 'FAILED': 0, 'DLQ': 1}
 ```

@@ -19,7 +19,7 @@ async def cleanup_metrics():
     redis_conn = aioredis.from_url(redis_url, decode_responses=True)
 
     try:
-        print("ðŸ§¹ Cleaning up metrics keys from Redis...")
+        print("🧹 Cleaning up metrics keys from Redis...")
 
         # Find all metrics keys
         metrics_keys = []
@@ -27,7 +27,7 @@ async def cleanup_metrics():
             metrics_keys.append(key)
 
         if not metrics_keys:
-            print("âœ… No metrics keys found - already clean!")
+            print("✅ No metrics keys found - already clean!")
             return
 
         print(f"Found {len(metrics_keys)} metrics keys:")
@@ -38,12 +38,12 @@ async def cleanup_metrics():
         # Delete all metrics keys
         if metrics_keys:
             deleted_count = await redis_conn.delete(*metrics_keys)
-            print(f"âœ… Deleted {deleted_count} metrics keys")
+            print(f"✅ Deleted {deleted_count} metrics keys")
 
-        print("ðŸŽ‰ Metrics cleanup completed!")
+        print("🎉 Metrics cleanup completed!")
 
     except Exception as e:
-        print(f"âŒ Error cleaning up metrics: {e}")
+        print(f"❌ Error cleaning up metrics: {e}")
         raise
     finally:
         await redis_conn.aclose()

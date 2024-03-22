@@ -473,7 +473,7 @@ class APITester:
             for result in self.test_results:
                 if not result["success"]:
                     status_info = f"Expected {result['expected_status']}, got {result.get('actual_status', 'ERROR')}"
-                    print(f"  âŒ {result['method']} {result['path']} - {status_info}")
+                    print(f"  ❌ {result['method']} {result['path']} - {status_info}")
                     if "error" in result:
                         print(f"     Error: {result['error']}")
                     elif "error_detail" in result:
@@ -483,7 +483,7 @@ class APITester:
         for result in self.test_results:
             if result["success"]:
                 print(
-                    f"  âœ… {result['method']} {result['path']} - {result['actual_status']}"
+                    f"  ✅ {result['method']} {result['path']} - {result['actual_status']}"
                 )
 
     def save_detailed_results(self, filename: str = "utils/test_api_results.json"):
@@ -555,10 +555,10 @@ async def main():
     # Exit with error code if any tests failed
     failed_count = sum(1 for result in tester.test_results if not result["success"])
     if failed_count > 0:
-        print(f"\nâš ï¸  {failed_count} tests failed!")
+        print(f"\n⚠️  {failed_count} tests failed!")
         sys.exit(1)
     else:
-        print("\nðŸŽ‰ All tests passed!")
+        print("\n🎉 All tests passed!")
         sys.exit(0)
 
 

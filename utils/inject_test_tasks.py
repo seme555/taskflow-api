@@ -114,18 +114,18 @@ class TaskInjector:
                 results.append(result)
 
                 if result["success"]:
-                    print(f"  âœ… Task {task_number} created: {result['task_id']}")
+                    print(f"  ✅ Task {task_number} created: {result['task_id']}")
                 else:
-                    print(f"  âŒ Task {task_number} failed: {result['error']}")
+                    print(f"  ❌ Task {task_number} failed: {result['error']}")
             else:
                 # Batch creation (for future enhancement)
                 result = await self.create_task(content, task_number)
                 results.append(result)
 
                 if result["success"]:
-                    print(f"  âœ… Task {task_number} created: {result['task_id']}")
+                    print(f"  ✅ Task {task_number} created: {result['task_id']}")
                 else:
-                    print(f"  âŒ Task {task_number} failed: {result['error']}")
+                    print(f"  ❌ Task {task_number} failed: {result['error']}")
 
             # Delay between tasks (except for the last one)
             if i < count - 1 and delay_between > 0:
@@ -238,13 +238,13 @@ class TaskInjector:
                     f"{self.base_url}/api/v1/tasks/{task_id}"
                 )
                 if response.status_code == 200:
-                    print(f"  âœ… Deleted task {task_info['task_number']}")
+                    print(f"  ✅ Deleted task {task_info['task_number']}")
                 else:
                     print(
-                        f"  âš ï¸  Task {task_info['task_number']} delete returned {response.status_code}"
+                        f"  ⚠️  Task {task_info['task_number']} delete returned {response.status_code}"
                     )
             except Exception as e:
-                print(f"  âŒ Failed to delete task {task_info['task_number']}: {e}")
+                print(f"  ❌ Failed to delete task {task_info['task_number']}: {e}")
 
 
 async def main():
@@ -331,12 +331,12 @@ async def main():
         # Exit with appropriate code
         failed_count = sum(1 for r in results if not r["success"])
         if failed_count > 0:
-            print(f"\nâš ï¸  {failed_count} tasks failed to create!")
+            print(f"\n⚠️  {failed_count} tasks failed to create!")
             sys.exit(1)
         else:
-            print(f"\nðŸŽ‰ All {len(results)} tasks created successfully!")
+            print(f"\n🎉 All {len(results)} tasks created successfully!")
             if not args.cleanup:
-                print("ðŸ’¡ Use --cleanup flag to automatically delete created tasks")
+                print("💡 Use --cleanup flag to automatically delete created tasks")
             sys.exit(0)
 
 

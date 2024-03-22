@@ -60,7 +60,7 @@ async def initialize_services() -> tuple[RedisService, TaskService, QueueService
         pool_stats = await redis_service.get_pool_stats()
         print(f"Redis pool initialized: {pool_stats}")
     else:
-        print("âš ï¸  Redis connection failed, but continuing...")
+        print("⚠️  Redis connection failed, but continuing...")
 
     # Initialize other services
     task_service = TaskService(redis_service)
@@ -74,7 +74,7 @@ async def initialize_services() -> tuple[RedisService, TaskService, QueueService
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events."""
     # Startup
-    print("ðŸš€ Starting TaskFlow API API...")
+    print("🚀 Starting TaskFlow API API...")
     print(f"Redis URL: {settings.redis_url}")
     print(f"Debug mode: {settings.debug}")
 
@@ -94,10 +94,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.queue_service = queue_svc
         app.state.health_service = health_svc
 
-        print("âœ… All services initialized successfully")
+        print("✅ All services initialized successfully")
 
     except Exception as e:
-        print(f"âŒ Failed to initialize services: {e}")
+        print(f"❌ Failed to initialize services: {e}")
         import traceback
 
         print(f"Full traceback: {traceback.format_exc()}")
@@ -110,10 +110,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
-    print("ðŸ§¹ Cleaning up services...")
+    print("🧹 Cleaning up services...")
     if services.redis_service:
         await services.redis_service.close()
-    print("âœ… Services cleaned up")
+    print("✅ Services cleaned up")
 
 
 # Create FastAPI application

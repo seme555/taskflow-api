@@ -111,26 +111,26 @@ The system is composed of several key services, each running in its own Docker c
 ### System Architecture Diagram
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                 â”‚     â”‚                 â”‚     â”‚                 â”‚
-â”‚  Client Request â”‚â”€â”€â”€â”€â–¶â”‚   FastAPI App   â”‚â”€â”€â”€â”€â–¶â”‚  Redis Storage  â”‚
-â”‚ (e.g., Frontend)â”‚     â”‚   (REST API)    â”‚     â”‚ (Task & Metrics)â”‚
-â”‚                 â”‚     â”‚                 â”‚     â”‚                 â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                                                          â”‚
-                        â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”               â”‚
-                        â”‚                 â”‚               â”‚
-                        â”‚  Custom Redis   â”‚â—€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                        â”‚     Queues      â”‚
-                        â”‚                 â”‚
-                        â””â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                                 â”‚
-                        â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                        â”‚                 â”‚     â”‚                 â”‚
-                        â”‚  Worker Process â”‚â”€â”€â”€â”€â–¶â”‚ External Serviceâ”‚
-                        â”‚ (Task Execution)â”‚     â”‚ (e.g., LLM API) â”‚
-                        â”‚                 â”‚     â”‚                 â”‚
-                        â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│                 │     │                 │     │                 │
+│  Client Request │────▶│   FastAPI App   │────▶│  Redis Storage  │
+│ (e.g., Frontend)│     │   (REST API)    │     │ (Task & Metrics)│
+│                 │     │                 │     │                 │
+└─────────────────┘     └─────────────────┘     └────────┬────────┘
+                                                          │
+                        ┌─────────────────┐               │
+                        │                 │               │
+                        │  Custom Redis   │◀──────────────┘
+                        │     Queues      │
+                        │                 │
+                        └────────┬────────┘
+                                 │
+                        ┌────────▼────────┐     ┌─────────────────┐
+                        │                 │     │                 │
+                        │  Worker Process │────▶│ External Service│
+                        │ (Task Execution)│     │ (e.g., LLM API) │
+                        │                 │     │                 │
+                        └─────────────────┘     └─────────────────┘
 ```
 
 ### Tech Stack
@@ -337,7 +337,7 @@ docker compose up -d --build
 
 To completely wipe all data in Redis (queues, tasks, metrics) during development, use the provided utility script.
 
-**âš ï¸ Warning**: This is a destructive operation and cannot be undone.
+**⚠️ Warning**: This is a destructive operation and cannot be undone.
 
 ```bash
 # Run the reset script via Docker Compose
@@ -502,7 +502,7 @@ TaskFlow API includes an advanced OpenRouter state management system that dramat
 - **Real-time Error Propagation**: Workers immediately report errors like rate limiting, auth failures, or credit exhaustion
 
 **Performance Benefits:**
-- **Response Time**: 5-10 seconds â†’ ~50ms (99% improvement)
+- **Response Time**: 5-10 seconds → ~50ms (99% improvement)
 - **API Efficiency**: ~95% reduction in OpenRouter API calls
 - **System Reliability**: Better error handling and coordination between workers
 - **Enhanced Monitoring**: Comprehensive metrics with 30-day retention

@@ -64,7 +64,7 @@ async def test_sse_stream():
                             elif data.get("type") == "task_state_changed":
                                 print(f"  Task: {data.get('task_id', 'unknown')}")
                                 print(
-                                    f"    State: {data.get('old_state', '?')} â†’ {data.get('new_state', '?')}"
+                                    f"    State: {data.get('old_state', '?')} → {data.get('new_state', '?')}"
                                 )
                                 print(
                                     f"    Queue Depths: {data.get('queue_depths', {})}"

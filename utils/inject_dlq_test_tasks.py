@@ -235,10 +235,10 @@ class DLQTaskInjector:
             results.append(result)
 
             if result["success"]:
-                print(f"  âœ… DLQ Task {task_number} created: {result['task_id']}")
+                print(f"  ✅ DLQ Task {task_number} created: {result['task_id']}")
                 print(f"     Error scenario: {result['error_scenario']}")
             else:
-                print(f"  âŒ DLQ Task {task_number} failed: {result['error']}")
+                print(f"  ❌ DLQ Task {task_number} failed: {result['error']}")
 
             # Small delay between tasks
             await asyncio.sleep(0.1)
@@ -299,7 +299,7 @@ class DLQTaskInjector:
                 )
 
                 status = (
-                    "âœ…" if (in_dlq_queue and has_task_data and correct_state) else "âŒ"
+                    "✅" if (in_dlq_queue and has_task_data and correct_state) else "❌"
                 )
                 print(f"  {status} Task {task_info['task_number']} ({task_id[:8]}...)")
                 print(f"     In DLQ queue: {in_dlq_queue}")
@@ -315,7 +315,7 @@ class DLQTaskInjector:
                         "valid": False,
                     }
                 )
-                print(f"  âŒ Task {task_info['task_number']}: Verification error: {e}")
+                print(f"  ❌ Task {task_info['task_number']}: Verification error: {e}")
 
         valid_count = sum(1 for r in verification_results if r.get("valid", False))
 
@@ -373,10 +373,10 @@ class DLQTaskInjector:
                     await pipe.decrby("metrics:tasks:state:dlq", 1)
                     await pipe.execute()
 
-                print(f"  âœ… Cleaned up DLQ task {task_info['task_number']}")
+                print(f"  ✅ Cleaned up DLQ task {task_info['task_number']}")
             except Exception as e:
                 print(
-                    f"  âŒ Failed to clean up DLQ task {task_info['task_number']}: {e}"
+                    f"  ❌ Failed to clean up DLQ task {task_info['task_number']}: {e}"
                 )
 
 
@@ -456,14 +456,14 @@ async def main():
         # Exit with appropriate code
         failed_count = sum(1 for r in results if not r["success"])
         if failed_count > 0:
-            print(f"\nâš ï¸  {failed_count} DLQ tasks failed to create!")
+            print(f"\n⚠️  {failed_count} DLQ tasks failed to create!")
             sys.exit(1)
         else:
-            print(f"\nðŸŽ‰ All {len(results)} DLQ tasks created successfully!")
+            print(f"\n🎉 All {len(results)} DLQ tasks created successfully!")
             if not args.cleanup:
-                print("ðŸ’¡ Use --cleanup flag to automatically delete created DLQ tasks")
-            print("ðŸ’¡ Use --verify flag to verify task injection")
-            print("ðŸ’¡ Check your frontend to see the DLQ tasks in the UI")
+                print("💡 Use --cleanup flag to automatically delete created DLQ tasks")
+            print("💡 Use --verify flag to verify task injection")
+            print("💡 Check your frontend to see the DLQ tasks in the UI")
             sys.exit(0)
 
 

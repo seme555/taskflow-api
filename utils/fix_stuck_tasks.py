@@ -45,27 +45,27 @@ def main():
         # Check if task exists in Redis
         task_data = r.hgetall(f"task:{task_id}")
         if not task_data:
-            print(f"âš ï¸  Task {task_id} not found in Redis, skipping")
+            print(f"⚠️  Task {task_id} not found in Redis, skipping")
             continue
 
         # Check if task is still PENDING
         if task_data.get("state") != "PENDING":
             print(
-                f"âœ… Task {task_id} already processed (state: {task_data.get('state')})"
+                f"✅ Task {task_id} already processed (state: {task_data.get('state')})"
             )
             continue
 
-        print(f"ðŸ”„ Triggering Celery task for {task_id}")
+        print(f"🔄 Triggering Celery task for {task_id}")
 
         try:
             # Send task to Celery
             celery_app.send_task("summarize_text", args=[task_id])
             processed_count += 1
-            print(f"âœ… Sent task {task_id} to Celery")
+            print(f"✅ Sent task {task_id} to Celery")
         except Exception as e:
-            print(f"âŒ Failed to send task {task_id}: {e}")
+            print(f"❌ Failed to send task {task_id}: {e}")
 
-    print(f"\nðŸŽ‰ Successfully triggered {processed_count} Celery tasks")
+    print(f"\n🎉 Successfully triggered {processed_count} Celery tasks")
     print("Tasks should now be processed by workers")
 
 

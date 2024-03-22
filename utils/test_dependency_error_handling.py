@@ -57,7 +57,7 @@ async def test_dependency_error_handling():
         task_state = await redis_conn.hget(f"task:{task_id}", "state")
 
         if task_state == "DLQ":
-            print(f"âœ… SUCCESS: Task {task_id} was correctly moved to DLQ!")
+            print(f"✅ SUCCESS: Task {task_id} was correctly moved to DLQ!")
 
             # Get task details
             task_details = await redis_conn.hgetall(f"task:{task_id}")
@@ -70,26 +70,26 @@ async def test_dependency_error_handling():
             # Check if it's in the DLQ
             dlq_tasks = await redis_conn.lrange("dlq:tasks", 0, -1)
             if task_id in dlq_tasks:
-                print("   âœ… Task is correctly present in DLQ")
+                print("   ✅ Task is correctly present in DLQ")
             else:
-                print("   âŒ Task is NOT in DLQ list")
+                print("   ❌ Task is NOT in DLQ list")
 
             # Check that it's not in retry queue or scheduled
             retry_tasks = await redis_conn.lrange("tasks:pending:retry", 0, -1)
             scheduled_tasks = await redis_conn.zrange("tasks:scheduled", 0, -1)
 
             if task_id not in retry_tasks and task_id not in scheduled_tasks:
-                print("   âœ… Task is correctly NOT in retry or scheduled queues")
+                print("   ✅ Task is correctly NOT in retry or scheduled queues")
                 return True
             else:
                 print(
-                    "   âŒ Task found in retry or scheduled queues (should not be there)"
+                    "   ❌ Task found in retry or scheduled queues (should not be there)"
                 )
                 return False
 
         elif task_state == "SCHEDULED":
             print(
-                f"âŒ FAILURE: Task {task_id} was scheduled for retry instead of going to DLQ!"
+                f"❌ FAILURE: Task {task_id} was scheduled for retry instead of going to DLQ!"
             )
 
             # Get task details
@@ -114,7 +114,7 @@ async def test_dependency_error_handling():
             continue
 
     print(
-        f"âŒ TIMEOUT: Task {task_id} was not processed within {max_wait_time} seconds"
+        f"❌ TIMEOUT: Task {task_id} was not processed within {max_wait_time} seconds"
     )
 
     # Get final task state
@@ -152,7 +152,7 @@ async def cleanup_test_data():
 
 async def main():
     """Main test function."""
-    print("ðŸ§ª Testing Dependency Error Handling")
+    print("🧪 Testing Dependency Error Handling")
     print("=" * 50)
 
     # Clean up any previous test data
@@ -163,12 +163,12 @@ async def main():
 
     print("\n" + "=" * 50)
     if success:
-        print("ðŸŽ‰ TEST PASSED: Dependency errors are correctly handled!")
+        print("🎉 TEST PASSED: Dependency errors are correctly handled!")
         print("   - Errors with missing dependencies go directly to DLQ")
         print("   - No unnecessary retry attempts are made")
         print("   - System resources are preserved")
     else:
-        print("âŒ TEST FAILED: Dependency error handling needs improvement")
+        print("❌ TEST FAILED: Dependency error handling needs improvement")
         print("   - Check the error classification logic")
         print("   - Verify the error handling in _handle_error function")
 

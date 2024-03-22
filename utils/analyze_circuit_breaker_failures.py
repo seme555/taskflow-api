@@ -16,7 +16,7 @@ def analyze_error_patterns():
     """Analyze error patterns from DLQ tasks and task history."""
     r = redis.from_url(REDIS_URL, decode_responses=True)
 
-    print("ðŸ” Analyzing Circuit Breaker Failure Root Causes")
+    print("🔍 Analyzing Circuit Breaker Failure Root Causes")
     print("=" * 60)
 
     # Get all DLQ task IDs
@@ -36,7 +36,7 @@ def analyze_error_patterns():
         if not task_data:
             continue
 
-        print(f"\nðŸ“‹ Task: {task_id}")
+        print(f"\n📋 Task: {task_id}")
         print(f"   State: {task_data.get('state', 'unknown')}")
         print(f"   Last Error: {task_data.get('last_error', 'none')}")
         print(f"   Error Type: {task_data.get('error_type', 'unknown')}")
@@ -51,7 +51,7 @@ def analyze_error_patterns():
                 pass
 
         if error_history:
-            print(f"   ðŸ“œ Error History ({len(error_history)} entries):")
+            print(f"   📜 Error History ({len(error_history)} entries):")
             for i, error_entry in enumerate(error_history, 1):
                 error_msg = error_entry.get("error", "unknown")
                 timestamp = error_entry.get("timestamp", "unknown")
@@ -104,7 +104,7 @@ def analyze_error_patterns():
                 )
 
     # Analyze all task states to find patterns
-    print("\nðŸ” Scanning all tasks for error patterns...")
+    print("\n🔍 Scanning all tasks for error patterns...")
     error_patterns = defaultdict(int)
     circuit_breaker_triggers = []
 
@@ -148,10 +148,10 @@ def analyze_error_patterns():
                 pass
 
     # Print analysis results
-    print("\nðŸ“Š ERROR ANALYSIS SUMMARY")
+    print("\n📊 ERROR ANALYSIS SUMMARY")
     print("=" * 40)
 
-    print("\nðŸš¨ HTTP Error Codes:")
+    print("\n🚨 HTTP Error Codes:")
     for code, count in error_analysis["http_errors"].most_common():
         code_meanings = {
             "429": "Too Many Requests (Rate Limited)",
@@ -166,23 +166,23 @@ def analyze_error_patterns():
         meaning = code_meanings.get(code, "Unknown")
         print(f"   HTTP {code}: {count} occurrences - {meaning}")
 
-    print("\nðŸ·ï¸  Error Types:")
+    print("\n🏷️  Error Types:")
     for error_type, count in error_analysis["error_types"].most_common():
         print(f"   {error_type}: {count} occurrences")
 
-    print("\nðŸ”„ Error Patterns:")
+    print("\n🔄 Error Patterns:")
     for pattern, count in error_patterns.items():
         print(f"   {pattern}: {count} occurrences")
 
     if circuit_breaker_triggers:
-        print(f"\nâš¡ Circuit Breaker Triggers ({len(circuit_breaker_triggers)}):")
+        print(f"\n⚡ Circuit Breaker Triggers ({len(circuit_breaker_triggers)}):")
         for trigger in circuit_breaker_triggers:
             print(
                 f"   Task {trigger['task_id']}: {trigger['error']} at {trigger['timestamp']}"
             )
 
     # Determine most likely root cause
-    print("\nðŸŽ¯ ROOT CAUSE ANALYSIS")
+    print("\n🎯 ROOT CAUSE ANALYSIS")
     print("=" * 30)
 
     if error_analysis["http_errors"]:
@@ -190,14 +190,14 @@ def analyze_error_patterns():
         error_code, count = most_common_error
 
         root_causes = {
-            "429": "ðŸš« RATE LIMITING: OpenRouter API is rate limiting requests. This is the most common cause of circuit breaker failures.",
-            "502": "ðŸŒ GATEWAY ISSUES: Bad gateway errors indicate network/proxy issues between workers and OpenRouter.",
-            "503": "âš ï¸  SERVICE UNAVAILABLE: OpenRouter service is experiencing high load or temporary outages.",
-            "402": "ðŸ’³ INSUFFICIENT CREDITS: OpenRouter account has insufficient credits to process requests.",
-            "500": "ðŸ”¥ SERVER ERRORS: OpenRouter is experiencing internal server errors.",
-            "401": "ðŸ” AUTHENTICATION: Invalid or expired OpenRouter API key.",
-            "403": "ðŸš· FORBIDDEN: API key doesn't have permission for the requested operation.",
-            "404": "â“ NOT FOUND: Invalid API endpoint or model not found.",
+            "429": "🚫 RATE LIMITING: OpenRouter API is rate limiting requests. This is the most common cause of circuit breaker failures.",
+            "502": "🌐 GATEWAY ISSUES: Bad gateway errors indicate network/proxy issues between workers and OpenRouter.",
+            "503": "⚠️  SERVICE UNAVAILABLE: OpenRouter service is experiencing high load or temporary outages.",
+            "402": "💳 INSUFFICIENT CREDITS: OpenRouter account has insufficient credits to process requests.",
+            "500": "🔥 SERVER ERRORS: OpenRouter is experiencing internal server errors.",
+            "401": "🔐 AUTHENTICATION: Invalid or expired OpenRouter API key.",
+            "403": "🚷 FORBIDDEN: API key doesn't have permission for the requested operation.",
+            "404": "❓ NOT FOUND: Invalid API endpoint or model not found.",
         }
 
         root_cause = root_causes.get(error_code, f"Unknown HTTP {error_code} errors")
@@ -208,39 +208,39 @@ def analyze_error_patterns():
         # Provide recommendations
         recommendations = {
             "429": [
-                "â€¢ Implement exponential backoff with longer delays",
-                "â€¢ Reduce worker concurrency to stay within rate limits",
-                "â€¢ Consider upgrading OpenRouter plan for higher rate limits",
-                "â€¢ Add jitter to prevent thundering herd effects",
+                "• Implement exponential backoff with longer delays",
+                "• Reduce worker concurrency to stay within rate limits",
+                "• Consider upgrading OpenRouter plan for higher rate limits",
+                "• Add jitter to prevent thundering herd effects",
             ],
             "502": [
-                "â€¢ Check network connectivity between workers and OpenRouter",
-                "â€¢ Verify DNS resolution for openrouter.ai",
-                "â€¢ Consider adding retry logic for gateway errors",
-                "â€¢ Check if there are any proxy/firewall issues",
+                "• Check network connectivity between workers and OpenRouter",
+                "• Verify DNS resolution for openrouter.ai",
+                "• Consider adding retry logic for gateway errors",
+                "• Check if there are any proxy/firewall issues",
             ],
             "503": [
-                "â€¢ Implement longer retry delays for service unavailable errors",
-                "â€¢ Monitor OpenRouter status page for service issues",
-                "â€¢ Consider implementing fallback mechanisms",
-                "â€¢ Add circuit breaker timeout adjustments",
+                "• Implement longer retry delays for service unavailable errors",
+                "• Monitor OpenRouter status page for service issues",
+                "• Consider implementing fallback mechanisms",
+                "• Add circuit breaker timeout adjustments",
             ],
             "402": [
-                "â€¢ Check OpenRouter account balance and add credits",
-                "â€¢ Implement credit monitoring and alerts",
-                "â€¢ Consider upgrading to a higher tier plan",
-                "â€¢ Add proper error handling for insufficient credits",
+                "• Check OpenRouter account balance and add credits",
+                "• Implement credit monitoring and alerts",
+                "• Consider upgrading to a higher tier plan",
+                "• Add proper error handling for insufficient credits",
             ],
             "401": [
-                "â€¢ Verify OpenRouter API key is correct and active",
-                "â€¢ Check if API key has expired",
-                "â€¢ Ensure API key is properly configured in environment variables",
-                "â€¢ Test API key with a simple curl request",
+                "• Verify OpenRouter API key is correct and active",
+                "• Check if API key has expired",
+                "• Ensure API key is properly configured in environment variables",
+                "• Test API key with a simple curl request",
             ],
         }
 
         if error_code in recommendations:
-            print("\nðŸ’¡ RECOMMENDATIONS:")
+            print("\n💡 RECOMMENDATIONS:")
             for rec in recommendations[error_code]:
                 print(rec)
 
@@ -254,10 +254,10 @@ def main():
     try:
         analyze_error_patterns()
         print(
-            "\nâœ… Analysis complete. Check the detailed output above for root cause information."
+            "\n✅ Analysis complete. Check the detailed output above for root cause information."
         )
     except Exception as e:
-        print(f"âŒ Analysis failed: {e}")
+        print(f"❌ Analysis failed: {e}")
 
 
 if __name__ == "__main__":

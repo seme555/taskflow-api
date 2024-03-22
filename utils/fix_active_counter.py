@@ -10,12 +10,12 @@ import sys
 
 
 def main():
-    print("âš ï¸  DEPRECATED: This script is no longer needed.")
-    print("ðŸ“ The metrics counter system has been removed from the application.")
+    print("⚠️  DEPRECATED: This script is no longer needed.")
+    print("📝 The metrics counter system has been removed from the application.")
     print(
-        "ðŸ§¹ Use 'python utils/cleanup_metrics.py' to remove any remaining metrics keys."
+        "🧹 Use 'python utils/cleanup_metrics.py' to remove any remaining metrics keys."
     )
-    print("â„¹ï¸  Task states are now calculated dynamically by scanning actual tasks.")
+    print("ℹ️  Task states are now calculated dynamically by scanning actual tasks.")
     sys.exit(0)
 
 

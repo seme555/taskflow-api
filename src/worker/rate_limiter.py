@@ -287,7 +287,7 @@ async def get_rate_limit_status() -> Dict[str, Any]:
 # Test function for development
 async def test_rate_limiter():
     """Test the rate limiter functionality."""
-    print("ðŸ§ª Testing Redis Token Bucket Rate Limiter")
+    print("🧪 Testing Redis Token Bucket Rate Limiter")
 
     # Reset bucket for clean test
     await global_rate_limiter.reset_bucket()
@@ -297,29 +297,29 @@ async def test_rate_limiter():
         5, "10s"
     )  # 5 requests per 10 seconds
 
-    print("ðŸ“Š Initial status:")
+    print("📊 Initial status:")
     status = await get_rate_limit_status()
     print(f"   Capacity: {status['capacity']}")
     print(f"   Current tokens: {status['current_tokens']:.2f}")
     print(f"   Refill rate: {status['refill_rate']:.2f} tokens/second")
 
     # Test acquiring tokens
-    print("\nðŸ”„ Testing token acquisition:")
+    print("\n🔄 Testing token acquisition:")
     for i in range(7):  # Try to get more tokens than capacity
         start_time = time.time()
         success = await wait_for_rate_limit_token(1, timeout=2.0)
         elapsed = time.time() - start_time
 
         if success:
-            print(f"   Request {i+1}: âœ… Acquired token in {elapsed:.3f}s")
+            print(f"   Request {i+1}: ✅ Acquired token in {elapsed:.3f}s")
         else:
-            print(f"   Request {i+1}: âŒ Timeout after {elapsed:.3f}s")
+            print(f"   Request {i+1}: ❌ Timeout after {elapsed:.3f}s")
 
         # Show current status
         status = await get_rate_limit_status()
         print(f"      Remaining tokens: {status['current_tokens']:.2f}")
 
-    print("\nðŸ“ˆ Final status:")
+    print("\n📈 Final status:")
     status = await get_rate_limit_status()
     print(f"   Current tokens: {status['current_tokens']:.2f}")
     print(f"   Utilization: {status['utilization_percent']:.1f}%")

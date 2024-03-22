@@ -244,7 +244,7 @@ async def send_alert(
     # Publish real-time alert
     await redis_conn.publish("openrouter-alerts", json.dumps(alert_data))
 
-    print(f"ðŸš¨ ALERT SENT: {alert_type.upper()}")
+    print(f"🚨 ALERT SENT: {alert_type.upper()}")
     print(f"   Message: {message}")
     print(f"   Current Balance: ${credit_info['balance']:.2f}")
     print(f"   Usage Today: ${credit_info['usage_today']:.2f}")
@@ -372,7 +372,7 @@ async def main():
             # Single check
             try:
                 result = await monitor_credits(settings)
-                print("âœ… Credit monitoring check completed")
+                print("✅ Credit monitoring check completed")
                 print(f"   Balance: ${result['balance']:.2f}")
                 print(f"   Status: {result['status'].upper()}")
                 print(f"   Usage Today: ${result['usage_today']:.2f}")
@@ -380,7 +380,7 @@ async def main():
                 if result["alerts_sent"]:
                     print(f"   Alerts Sent: {', '.join(result['alerts_sent'])}")
             except Exception as e:
-                print(f"âŒ Error during credit check: {e}")
+                print(f"❌ Error during credit check: {e}")
                 sys.exit(1)
 
         elif command == "history":
@@ -388,7 +388,7 @@ async def main():
             hours = int(sys.argv[2]) if len(sys.argv) > 2 else 24
             try:
                 history = await get_credit_history(settings, hours)
-                print(f"ðŸ“Š Credit History (Last {hours} hours)")
+                print(f"📊 Credit History (Last {hours} hours)")
                 print(f"   Total Entries: {history['total_entries']}")
 
                 if history["entries"]:
@@ -403,13 +403,13 @@ async def main():
                 else:
                     print("   No history entries found")
             except Exception as e:
-                print(f"âŒ Error retrieving history: {e}")
+                print(f"❌ Error retrieving history: {e}")
                 sys.exit(1)
 
         elif command == "monitor":
             # Continuous monitoring
             print(
-                f"ðŸ”„ Starting continuous credit monitoring (check every {settings.check_interval_minutes} minutes)"
+                f"🔄 Starting continuous credit monitoring (check every {settings.check_interval_minutes} minutes)"
             )
             print(f"   Warning Threshold: ${settings.credit_warning_threshold:.2f}")
             print(f"   Critical Threshold: ${settings.credit_critical_threshold:.2f}")
@@ -430,16 +430,16 @@ async def main():
                             )
 
                     except Exception as e:
-                        print(f"âŒ Error during monitoring cycle: {e}")
+                        print(f"❌ Error during monitoring cycle: {e}")
 
                     # Wait for next check
                     await asyncio.sleep(settings.check_interval_minutes * 60)
 
             except KeyboardInterrupt:
-                print("\nðŸ›‘ Monitoring stopped by user")
+                print("\n🛑 Monitoring stopped by user")
 
         else:
-            print(f"âŒ Unknown command: {command}")
+            print(f"❌ Unknown command: {command}")
             print("Available commands: check, history [hours], monitor")
             sys.exit(1)
 
@@ -447,19 +447,19 @@ async def main():
         # Default: single check
         try:
             result = await monitor_credits(settings)
-            print("âœ… OpenRouter Credit Check")
+            print("✅ OpenRouter Credit Check")
             print(f"   Balance: ${result['balance']:.2f}")
             print(f"   Status: {result['status'].upper()}")
             print(f"   Usage Today: ${result['usage_today']:.2f}")
             print(f"   Usage This Month: ${result['usage_month']:.2f}")
 
             if result["status"] != "ok":
-                print("\nâš ï¸  Consider adding credits to your OpenRouter account")
+                print("\n⚠️  Consider adding credits to your OpenRouter account")
                 print(f"   Warning threshold: ${result['thresholds']['warning']:.2f}")
                 print(f"   Critical threshold: ${result['thresholds']['critical']:.2f}")
 
         except Exception as e:
-            print(f"âŒ Error: {e}")
+            print(f"❌ Error: {e}")
             sys.exit(1)
 
 

@@ -49,7 +49,7 @@ async def test_openrouter_credits(api_key: str, base_url: str) -> Dict:
 
             data = response.json()
 
-            print("âœ… OpenRouter API Response:")
+            print("✅ OpenRouter API Response:")
             print(json.dumps(data, indent=2))
 
             # Extract usage information
@@ -58,7 +58,7 @@ async def test_openrouter_credits(api_key: str, base_url: str) -> Dict:
                 total_usage = data_section.get("usage", 0.0)
                 rate_limit = data_section.get("rate_limit", {})
 
-                print("\nðŸ“Š Usage Summary:")
+                print("\n📊 Usage Summary:")
                 print(f"   Total Usage: ${total_usage:.4f}")
                 print(f"   Rate Limit: {rate_limit}")
 
@@ -72,7 +72,7 @@ async def test_openrouter_credits(api_key: str, base_url: str) -> Dict:
                 return {"success": False, "error": "Unexpected response format"}
 
     except Exception as e:
-        print(f"âŒ Error: {e}")
+        print(f"❌ Error: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -82,19 +82,19 @@ async def main():
 
     if not settings.openrouter_api_key:
         print(
-            "âŒ OpenRouter API key not configured. Please set OPENROUTER_API_KEY environment variable."
+            "❌ OpenRouter API key not configured. Please set OPENROUTER_API_KEY environment variable."
         )
         return
 
-    print("ðŸ” Testing OpenRouter API connection...")
+    print("🔍 Testing OpenRouter API connection...")
     result = await test_openrouter_credits(
         settings.openrouter_api_key, settings.openrouter_base_url
     )
 
     if result["success"]:
-        print("\nâœ… OpenRouter API test successful!")
+        print("\n✅ OpenRouter API test successful!")
     else:
-        print(f"\nâŒ OpenRouter API test failed: {result['error']}")
+        print(f"\n❌ OpenRouter API test failed: {result['error']}")
 
 
 if __name__ == "__main__":
