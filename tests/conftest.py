@@ -1,13 +1,13 @@
 """Pytest configuration and shared fixtures."""
 
 import pytest
-import redis
 from unittest.mock import MagicMock
 
 
 @pytest.fixture
 def mock_redis():
     """Mock Redis client for testing."""
+    redis = pytest.importorskip("redis")
     mock = MagicMock(spec=redis.Redis)
     mock.ping.return_value = True
     mock.hgetall.return_value = {}
