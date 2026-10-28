@@ -4,6 +4,7 @@
 
 This project provides a robust framework for handling asynchronous tasks, featuring a sophisticated queueing system, circuit breaker protection, and a comprehensive real-time monitoring dashboard.
 
+[![CI](https://github.com/seme555/taskflow-api/actions/workflows/ci.yml/badge.svg)](https://github.com/seme555/taskflow-api/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11-green.svg)](https://www.python.org/downloads/release/python-311/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-green.svg)](https://fastapi.tiangolo.com/)
 [![Celery](https://img.shields.io/badge/Celery-5.3-green.svg)](https://docs.celeryq.dev/en/stable/)
